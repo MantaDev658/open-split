@@ -40,3 +40,15 @@ run-cli:
 	cd apps/backend && go run cmd/cli/main.go -file=../../test_expenses.csv
 
 all: lint test-race
+
+# Database Connection URL (Update with your local Postgres credentials)
+DB_URL="postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable"
+
+setup-migrate:
+	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+migrate-up:
+	migrate -path apps/backend/internal/expense/infrastructure/postgres/migrations -database $(DB_URL) -verbose up
+
+migrate-down:
+	migrate -path apps/backend/internal/expense/infrastructure/postgres/migrations -database $(DB_URL) -verbose down
