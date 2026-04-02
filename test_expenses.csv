@@ -1,3 +1,5 @@
-Alice,3000,Dinner,Alice,Bob,Charlie
-Bob,1500,Movie Tickets,Alice,Bob
-Charlie,1000,Snacks,Alice,Bob,Charlie
+2026-04-01,Dinner,Food,9000,Alice,EVEN,Alice,Bob,Charlie
+2026-04-02,Uber,Transport,2500,Alice,EVEN,Alice,Bob
+2026-04-03,Groceries,Food,10000,Bob,EXACT,Alice:2000,Bob:8000,Charlie:0
+2026-04-04,Hotel,Lodging,30000,Charlie,PERCENT,Alice:25,Bob:25,Charlie:50
+2026-04-05,Drinks,Entertainment,5500,Alice,SHARES,Alice:2,Bob:1,Charlie:1,Dave:1

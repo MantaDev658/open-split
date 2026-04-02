@@ -6,13 +6,14 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
-	"github.com/google/uuid"
 	"opensplit/apps/backend/internal/expense/domain"
 	"opensplit/libs/go-core/money"
+
+	"github.com/google/uuid"
 )
 
-// ParseExpenses reads a CSV file and converts it into validated Domain Expenses
 func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -21,8 +22,7 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	// Allow variable number of columns per row (since the number of splitters varies)
-	reader.FieldsPerRecord = -1
+	reader.FieldsPerRecord = -1 // Allow dynamic columns
 
 	var expenses []*domain.Expense
 	lineNum := 0
@@ -37,36 +37,45 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 			return nil, fmt.Errorf("error reading row %d: %w", lineNum, err)
 		}
 
-		// A valid row must have at least Payer, Amount, Description, and 1 Splitter
-		if len(record) < 4 {
+		// We now require at least 7 columns (Date, Desc, Cat, Total, Payer, Strategy, 1+ Participants)
+		if len(record) < 7 {
 			return nil, fmt.Errorf("row %d has insufficient columns", lineNum)
 		}
 
-		payer := domain.UserID(record[0])
-		cents, err := strconv.ParseInt(record[1], 10, 64)
+		// Read Metadata
+		// date := record[0]      // We can pass this to domain later
+		desc := record[1]
+		// category := record[2]  // We can pass this to domain later
+
+		cents, err := strconv.ParseInt(record[3], 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid amount on row %d: %w", lineNum, err)
+			return nil, fmt.Errorf("invalid total amount on row %d", lineNum)
 		}
+		totalMoney, _ := money.New(cents)
 
-		totalMoney, err := money.New(cents)
-		if err != nil {
-			return nil, fmt.Errorf("negative amount on row %d: %w", lineNum, err)
-		}
-
-		desc := record[2]
-		splitterNames := record[3:]
-
-		// Use our safe math library to distribute the pennies perfectly!
-		splitAmounts := totalMoney.Distribute(len(splitterNames))
+		payer := domain.UserID(strings.TrimSpace(record[4]))
+		strategy := strings.ToUpper(strings.TrimSpace(record[5]))
+		participantData := record[6:]
 
 		var splits []domain.Split
-		for i, name := range splitterNames {
-			splits = append(splits, domain.Split{
-				User:   domain.UserID(name),
-				Amount: splitAmounts[i],
-			})
+
+		// Route to the correct parsing strategy
+		switch strategy {
+		case "EVEN":
+			splits = parseEven(participantData, totalMoney)
+		case "EXACT":
+			splits, err = parseExact(participantData)
+		case "PERCENT", "SHARES":
+			splits, err = parseWeighted(participantData, totalMoney)
+		default:
+			return nil, fmt.Errorf("unknown strategy '%s' on row %d", strategy, lineNum)
 		}
 
+		if err != nil {
+			return nil, fmt.Errorf("error parsing splits on row %d: %w", lineNum, err)
+		}
+
+		// The Domain constructor still validates that our parser math adds up to the total!
 		expense, err := domain.NewExpense(
 			domain.ExpenseID(uuid.NewString()),
 			desc,
@@ -82,4 +91,87 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	}
 
 	return expenses, nil
+}
+
+// --- Parsing Strategies ---
+
+func parseEven(participants []string, total money.Money) []domain.Split {
+	splitAmounts := total.Distribute(len(participants))
+	var splits []domain.Split
+	for i, name := range participants {
+		splits = append(splits, domain.Split{
+			User:   domain.UserID(strings.TrimSpace(name)),
+			Amount: splitAmounts[i],
+		})
+	}
+	return splits
+}
+
+func parseExact(participantData []string) ([]domain.Split, error) {
+	var splits []domain.Split
+	for _, p := range participantData {
+		parts := strings.Split(p, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid exact format (expected User:Cents), got %s", p)
+		}
+
+		user := domain.UserID(strings.TrimSpace(parts[0]))
+		cents, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		amt, _ := money.New(cents)
+		splits = append(splits, domain.Split{User: user, Amount: amt})
+	}
+	return splits, nil
+}
+
+// parseWeighted handles both Percentages and Shares using integer math
+func parseWeighted(participantData []string, total money.Money) ([]domain.Split, error) {
+	type weightedUser struct {
+		user   domain.UserID
+		weight int64
+	}
+	var users []weightedUser
+	var totalWeight int64 = 0
+
+	// 1. Extract weights
+	for _, p := range participantData {
+		parts := strings.Split(p, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid weighted format (expected User:Weight), got %s", p)
+		}
+
+		weight, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, weightedUser{
+			user:   domain.UserID(strings.TrimSpace(parts[0])),
+			weight: weight,
+		})
+		totalWeight += weight
+	}
+
+	// 2. Allocate cents safely to avoid dropping pennies
+	var splits []domain.Split
+	var allocatedCents int64 = 0
+	totalCents := total.Int64()
+
+	for _, u := range users {
+		// Integer division safely truncates to the lowest penny
+		shareCents := (totalCents * u.weight) / totalWeight
+		amt, _ := money.New(shareCents)
+		splits = append(splits, domain.Split{User: u.user, Amount: amt})
+		allocatedCents += shareCents
+	}
+
+	// 3. Hand out the remaining pennies one by one to the first users
+	remainder := totalCents - allocatedCents
+	for i := 0; i < int(remainder); i++ {
+		currentAmt := splits[i].Amount.Int64()
+		splits[i].Amount, _ = money.New(currentAmt + 1)
+	}
+
+	return splits, nil
 }
