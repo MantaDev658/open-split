@@ -25,9 +25,29 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# Go Fuzzing corpus
+testdata/fuzz/
+
+# --- Environment & Secrets ---
 .env
+.env.local
+.env.*.local
+
+# Vim/Emacs
+*~
+*.swp
+*.swo
+
+# --- System Files ---
+.DS_Store
+Thumbs.db
+
+# --- Infrastructure ---
+# Pulumi state or local secrets
+.pulumi/
 
 # Editor/IDE
 # .idea/
 # .vscode/
+# !.vscode/extensions.json
+# .code-workspace
