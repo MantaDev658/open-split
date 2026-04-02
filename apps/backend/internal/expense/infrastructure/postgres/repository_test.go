@@ -24,12 +24,12 @@ func setupTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("failed to connect to test db: %v", err)
 	}
 
-	// Clean tables before running to ensure an isolated environment
+	// clean tables before running to ensure an isolated environment
 	_, _ = db.Exec("DELETE FROM splits")
 	_, _ = db.Exec("DELETE FROM expenses")
 	_, _ = db.Exec("DELETE FROM users")
 
-	// Seed required users for Foreign Key constraints
+	// seed required users for Foreign Key constraints
 	_, err = db.Exec("INSERT INTO users (id, display_name) VALUES ('Alice', 'Alice'), ('Bob', 'Bob')")
 	if err != nil {
 		t.Fatalf("failed to seed users: %v", err)
@@ -45,7 +45,6 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 	repo := NewExpenseRepository(db)
 	ctx := context.Background()
 
-	// --- 1. Create Data ---
 	expenseID := domain.ExpenseID(uuid.NewString())
 	total, _ := money.New(5000)
 	split1, _ := money.New(2500)
@@ -65,13 +64,11 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 		t.Fatalf("failed to create domain expense: %v", err)
 	}
 
-	// --- 2. Test Save ---
 	err = repo.Save(ctx, exp)
 	if err != nil {
 		t.Fatalf("failed to save expense: %v", err)
 	}
 
-	// --- 3. Test GetByID ---
 	fetchedExp, err := repo.GetByID(ctx, expenseID)
 	if err != nil {
 		t.Fatalf("failed to get expense by id: %v", err)
@@ -87,7 +84,6 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 		t.Errorf("expected 2 splits, got %d", len(fetchedExp.Splits()))
 	}
 
-	// --- 4. Test ListAll ---
 	allExpenses, err := repo.ListAll(ctx)
 	if err != nil {
 		t.Fatalf("failed to list all expenses: %v", err)
@@ -107,7 +103,8 @@ func TestExpenseRepository_GetByID_NotFound(t *testing.T) {
 
 	repo := NewExpenseRepository(db)
 
-	_, err := repo.GetByID(context.Background(), domain.ExpenseID("non-existent-id"))
+	randomID := domain.ExpenseID(uuid.NewString())
+	_, err := repo.GetByID(context.Background(), randomID)
 	if err != domain.ErrExpenseNotFound {
 		t.Errorf("expected ErrExpenseNotFound, got %v", err)
 	}

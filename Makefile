@@ -1,8 +1,11 @@
 # Makefile
 .PHONY: setup lint test test-race fuzz run-cli
 
-MODULES = libs/go-core apps/backend
+# --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
+DB_URL = "postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable"
+MIGRATE_PATH = apps/backend/internal/expense/infrastructure/postgres/migrations
+MODULES = libs/go-core apps/backend
 
 setup:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -18,6 +21,13 @@ lint:
 		cd $$mod && $(GOBIN)/golangci-lint run ./... || exit 1; \
 		cd - > /dev/null; \
 	done
+
+# --- Testing ---
+
+# We isolate integration tests so they don't slow down our standard 'make test'
+test-integration: db-up migrate-up
+	@echo "Running PostgreSQL Integration Tests..."
+	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/expense/infrastructure/postgres/...
 
 test:
 	@for mod in $(MODULES); do \
@@ -41,14 +51,23 @@ run-cli:
 
 all: lint test-race
 
-# Database Connection URL (Update with your local Postgres credentials)
-DB_URL="postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable"
+# --- Database & Infrastructure ---
+
+db-up:
+	@echo "Starting PostgreSQL..."
+	docker-compose up -d
+	@echo "Waiting for database to be ready..."
+	sleep 2
+
+db-down:
+	@echo "Stopping PostgreSQL..."
+	docker-compose down
 
 setup-migrate:
 	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 migrate-up:
-	migrate -path apps/backend/internal/expense/infrastructure/postgres/migrations -database $(DB_URL) -verbose up
+	@$(GOBIN)/migrate -path $(MIGRATE_PATH) -database $(DB_URL) -verbose up
 
 migrate-down:
-	migrate -path apps/backend/internal/expense/infrastructure/postgres/migrations -database $(DB_URL) -verbose down
+	@$(GOBIN)/migrate -path $(MIGRATE_PATH) -database $(DB_URL) -verbose down
