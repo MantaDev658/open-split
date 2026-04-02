@@ -7,6 +7,11 @@ GOBIN = $(shell go env GOPATH)/bin
 setup:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
+build:
+	@echo "Building Open Split CLI..."
+	go build -o bin/opensplit-cli ./apps/backend/cmd/cli
+	@echo "✅ Binary compiled to bin/opensplit-cli"
+
 lint:
 	@for mod in $(MODULES); do \
 		echo "Linting $$mod..."; \
