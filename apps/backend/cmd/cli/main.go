@@ -11,7 +11,6 @@ import (
 )
 
 func main() {
-	// 1. Define CLI flags
 	filePath := flag.String("file", "", "Path to the CSV file containing expenses")
 	noSimplify := flag.Bool("no-simplify", false, "Show raw net balances instead of simplified transactions")
 	flag.Parse()
@@ -21,17 +20,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 2. Parse the CSV
 	expenses, err := csv.ParseExpenses(*filePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Error parsing CSV: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 3. Calculate raw net balances
 	netBalances := domain.CalculateNetBalances(expenses)
 
-	// 4. Output logic based on the flag
 	if *noSimplify {
 		printRawLedger(netBalances)
 	} else {

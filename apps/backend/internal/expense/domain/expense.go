@@ -30,7 +30,6 @@ type Expense struct {
 	createdAt   time.Time
 }
 
-// NewExpense is the only way to create an Expense. It guarantees validity.
 func NewExpense(id ExpenseID, desc string, total money.Money, payer UserID, splits []Split) (*Expense, error) {
 	if payer == "" {
 		return nil, ErrMissingPayer
@@ -58,23 +57,20 @@ func NewExpense(id ExpenseID, desc string, total money.Money, payer UserID, spli
 	}, nil
 }
 
-// Getters for infrastructure layer
 func (e *Expense) ID() ExpenseID            { return e.id }
 func (e *Expense) Description() string      { return e.description }
 func (e *Expense) TotalAmount() money.Money { return e.totalAmount }
 func (e *Expense) Payer() UserID            { return e.payer }
 func (e *Expense) Splits() []Split          { return e.splits }
 
-// CalculateNetBalances takes a list of expenses and returns a map of each user's net position.
-// Positive = they are owed money. Negative = they owe money.
 func CalculateNetBalances(expenses []*Expense) map[UserID]int64 {
 	balances := make(map[UserID]int64)
 
 	for _, exp := range expenses {
-		// The payer's net position goes UP by the total amount they fronted
+		// the payer's net position goes UP by the total amount they fronted
 		balances[exp.Payer()] += exp.TotalAmount().Int64()
 
-		// Every user's net position goes DOWN by the exact amount of their split
+		// every user's net position goes DOWN by the exact amount of their split
 		for _, split := range exp.Splits() {
 			balances[split.User] -= split.Amount.Int64()
 		}

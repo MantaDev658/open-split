@@ -22,7 +22,7 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	reader.FieldsPerRecord = -1 // Allow dynamic columns
+	reader.FieldsPerRecord = -1 // allow dynamic columns
 
 	var expenses []*domain.Expense
 	lineNum := 0
@@ -37,12 +37,11 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 			return nil, fmt.Errorf("error reading row %d: %w", lineNum, err)
 		}
 
-		// We now require at least 7 columns (Date, Desc, Cat, Total, Payer, Strategy, 1+ Participants)
+		// we now require at least 7 columns (Date, Desc, Cat, Total, Payer, Strategy, 1+ Participants)
 		if len(record) < 7 {
 			return nil, fmt.Errorf("row %d has insufficient columns", lineNum)
 		}
 
-		// Read Metadata
 		// date := record[0]      // We can pass this to domain later
 		desc := record[1]
 		// category := record[2]  // We can pass this to domain later
@@ -59,7 +58,6 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 
 		var splits []domain.Split
 
-		// Route to the correct parsing strategy
 		switch strategy {
 		case "EVEN":
 			splits = parseEven(participantData, totalMoney)
@@ -75,7 +73,6 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 			return nil, fmt.Errorf("error parsing splits on row %d: %w", lineNum, err)
 		}
 
-		// The Domain constructor still validates that our parser math adds up to the total!
 		expense, err := domain.NewExpense(
 			domain.ExpenseID(uuid.NewString()),
 			desc,
@@ -92,8 +89,6 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 
 	return expenses, nil
 }
-
-// --- Parsing Strategies ---
 
 func parseEven(participants []string, total money.Money) []domain.Split {
 	splitAmounts := total.Distribute(len(participants))
@@ -126,7 +121,6 @@ func parseExact(participantData []string) ([]domain.Split, error) {
 	return splits, nil
 }
 
-// parseWeighted handles both Percentages and Shares using integer math
 func parseWeighted(participantData []string, total money.Money) ([]domain.Split, error) {
 	type weightedUser struct {
 		user   domain.UserID
@@ -135,7 +129,6 @@ func parseWeighted(participantData []string, total money.Money) ([]domain.Split,
 	var users []weightedUser
 	var totalWeight int64 = 0
 
-	// 1. Extract weights
 	for _, p := range participantData {
 		parts := strings.Split(p, ":")
 		if len(parts) != 2 {
@@ -153,20 +146,17 @@ func parseWeighted(participantData []string, total money.Money) ([]domain.Split,
 		totalWeight += weight
 	}
 
-	// 2. Allocate cents safely to avoid dropping pennies
 	var splits []domain.Split
 	var allocatedCents int64 = 0
 	totalCents := total.Int64()
 
 	for _, u := range users {
-		// Integer division safely truncates to the lowest penny
 		shareCents := (totalCents * u.weight) / totalWeight
 		amt, _ := money.New(shareCents)
 		splits = append(splits, domain.Split{User: u.user, Amount: amt})
 		allocatedCents += shareCents
 	}
 
-	// 3. Hand out the remaining pennies one by one to the first users
 	remainder := totalCents - allocatedCents
 	for i := 0; i < int(remainder); i++ {
 		currentAmt := splits[i].Amount.Int64()

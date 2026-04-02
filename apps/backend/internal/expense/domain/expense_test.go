@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewExpense_Validation(t *testing.T) {
-	total, _ := money.New(3000) // $30.00
+	total, _ := money.New(3000)
 	split10, _ := money.New(1000)
 	split20, _ := money.New(2000)
 
@@ -39,7 +39,7 @@ func TestNewExpense_Validation(t *testing.T) {
 			payer: "Alice",
 			splits: []Split{
 				{User: "Alice", Amount: split10},
-				{User: "Bob", Amount: split10}, // Only sums to $20, total is $30
+				{User: "Bob", Amount: split10},
 			},
 			expectError: ErrSplitsDoNotEqualTotal,
 		},
