@@ -25,7 +25,7 @@ lint:
 		cd - > /dev/null; \
 	done
 
-check: lint test-race
+check: lint test test-race
 
 # --- Testing ---
 
