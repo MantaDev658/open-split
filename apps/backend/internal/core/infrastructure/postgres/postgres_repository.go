@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"opensplit/apps/backend/internal/expense/domain"
+	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/libs/go-core/money"
 )
 

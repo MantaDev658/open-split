@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"opensplit/apps/backend/internal/expense/domain"
+	"opensplit/apps/backend/internal/core/domain"
 )
 
 type UserService struct {

@@ -6,8 +6,8 @@ import (
 	"os"
 	"sort"
 
-	"opensplit/apps/backend/internal/expense/domain"
-	"opensplit/apps/backend/internal/expense/infrastructure/csv"
+	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/infrastructure/csv"
 )
 
 func main() {

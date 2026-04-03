@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 
-	"opensplit/apps/backend/internal/expense/application"
-	openhttp "opensplit/apps/backend/internal/expense/infrastructure/http"
-	"opensplit/apps/backend/internal/expense/infrastructure/postgres"
+	"opensplit/apps/backend/internal/core/application"
+	openhttp "opensplit/apps/backend/internal/core/infrastructure/http"
+	"opensplit/apps/backend/internal/core/infrastructure/postgres"
 
 	_ "github.com/lib/pq"
 )

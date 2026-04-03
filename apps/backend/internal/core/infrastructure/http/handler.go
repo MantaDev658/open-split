@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"opensplit/apps/backend/internal/expense/application"
-	"opensplit/apps/backend/internal/expense/domain"
+	"opensplit/apps/backend/internal/core/application"
+	"opensplit/apps/backend/internal/core/domain"
 )
 
 type APIHandler struct {

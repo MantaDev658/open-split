@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"opensplit/apps/backend/internal/expense/domain"
-	"opensplit/apps/backend/internal/expense/infrastructure/postgres"
+	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/infrastructure/postgres"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {
