@@ -42,6 +42,8 @@ func main() {
 	mux.HandleFunc("POST /expenses", handler.CreateExpense)
 	mux.HandleFunc("GET /expenses", handler.ListExpenses)
 	mux.HandleFunc("GET /balances", handler.GetBalances)
+	mux.HandleFunc("PUT /expenses/{id}", handler.UpdateExpense)
+	mux.HandleFunc("DELETE /expenses/{id}", handler.DeleteExpense)
 
 	// User
 	mux.HandleFunc("POST /users", handler.CreateUser)

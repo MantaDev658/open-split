@@ -31,6 +31,15 @@ type CreateExpenseCommand struct {
 	Splits      map[string]int64 `json:"splits"`
 }
 
+type UpdateExpenseCommand struct {
+	ID          string           `json:"id"`
+	GroupID     string           `json:"group_id,omitempty"`
+	Description string           `json:"description"`
+	TotalCents  int64            `json:"total_cents"`
+	Payer       string           `json:"payer"`
+	Splits      map[string]int64 `json:"splits"`
+}
+
 func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseCommand) error {
 	totalMoney, err := money.New(cmd.TotalCents)
 	if err != nil {
@@ -110,4 +119,66 @@ func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string
 		return nil, fmt.Errorf("failed to fetch group expenses: %w", err)
 	}
 	return expenses, nil
+}
+
+func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
+	totalMoney, err := money.New(cmd.TotalCents)
+	if err != nil {
+		return fmt.Errorf("invalid total amount: %w", err)
+	}
+
+	var splits []domain.Split
+	for user, cents := range cmd.Splits {
+		splitMoney, _ := money.New(cents)
+		splits = append(splits, domain.Split{
+			User:   domain.UserID(user),
+			Amount: splitMoney,
+		})
+	}
+
+	var groupIDPtr *domain.GroupID
+	if cmd.GroupID != "" {
+		gID := domain.GroupID(cmd.GroupID)
+		groupIDPtr = &gID
+
+		group, err := s.groupRepo.GetByID(ctx, gID)
+		if err != nil {
+			return fmt.Errorf("failed to validate group: %w", err)
+		}
+		if !group.HasMember(domain.UserID(cmd.Payer)) {
+			return fmt.Errorf("payer %s is not a member of group %s", cmd.Payer, group.Name)
+		}
+		for _, split := range splits {
+			if !group.HasMember(split.User) {
+				return fmt.Errorf("split participant %s is not a member of group %s", split.User, group.Name)
+			}
+		}
+	}
+
+	expense, err := domain.NewExpense(
+		domain.ExpenseID(cmd.ID),
+		groupIDPtr,
+		cmd.Description,
+		totalMoney,
+		domain.UserID(cmd.Payer),
+		splits,
+	)
+	if err != nil {
+		return fmt.Errorf("business rule violation: %w", err)
+	}
+
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return s.expenseRepo.Update(dbCtx, expense)
+}
+
+func (s *ExpenseService) DeleteExpense(ctx context.Context, id string) error {
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := s.expenseRepo.Delete(dbCtx, domain.ExpenseID(id)); err != nil {
+		return fmt.Errorf("failed to delete expense: %w", err)
+	}
+	return nil
 }

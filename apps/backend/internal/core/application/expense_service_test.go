@@ -8,23 +8,28 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 )
 
+// Expense
 type mockExpenseRepo struct {
 	saveFunc func(ctx context.Context, expense *domain.Expense) error
 }
 
 func (m *mockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
-	return m.saveFunc(ctx, expense)
+	if m.saveFunc != nil {
+		return m.saveFunc(ctx, expense)
+	}
+	return nil
 }
 func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
-	return nil, nil // Not needed for this test
+	return nil, nil
 }
-func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
-	return nil, nil // Not needed for this test
-}
+func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) { return nil, nil }
 func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
 	return nil, nil
 }
+func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }
+func (m *mockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error     { return nil }
 
+// Group
 type mockGroupRepo struct {
 	getByIDFunc func(id domain.GroupID) (*domain.Group, error)
 }

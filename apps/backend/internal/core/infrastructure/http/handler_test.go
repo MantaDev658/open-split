@@ -11,13 +11,12 @@ import (
 	"opensplit/apps/backend/internal/core/application"
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/libs/shared/money"
-
-	"github.com/google/uuid"
 )
 
+// Expense
 type mockExpenseRepo struct{}
 
-func (m *mockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error { return nil }
+func (m *mockExpenseRepo) Save(ctx context.Context, e *domain.Expense) error { return nil }
 func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
 	return nil, nil
 }
@@ -25,7 +24,7 @@ func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error
 	total, _ := money.New(3000)
 	split, _ := money.New(1500)
 	exp, _ := domain.NewExpense(
-		domain.ExpenseID(uuid.NewString()),
+		domain.ExpenseID("test-id"),
 		nil,
 		"Test Dinner",
 		total,
@@ -38,6 +37,10 @@ func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupI
 	return nil, nil
 }
 
+func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }
+func (m *mockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error     { return nil }
+
+// User
 type mockUserRepo struct{}
 
 func (m *mockUserRepo) Save(ctx context.Context, u domain.User) error { return nil }
@@ -45,6 +48,7 @@ func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
 	return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 }
 
+// Group
 type mockGroupRepo struct{}
 
 func (m *mockGroupRepo) Save(ctx context.Context, g *domain.Group) error { return nil }
@@ -168,6 +172,40 @@ func TestAPIHandler_Expenses(t *testing.T) {
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", rr.Code)
+		}
+	})
+
+	t.Run("PUT /expenses/{id} successfully updates", func(t *testing.T) {
+		cmd := application.UpdateExpenseCommand{
+			Description: "Updated Dinner",
+			TotalCents:  4000,
+			Payer:       "Alice",
+			Splits:      map[string]int64{"Alice": 2000, "Bob": 2000},
+		}
+		body, _ := json.Marshal(cmd)
+
+		req := httptest.NewRequest("PUT", "/expenses/exp-123", bytes.NewBuffer(body))
+		// Inject the path value for the test router
+		req.SetPathValue("id", "exp-123")
+
+		rr := httptest.NewRecorder()
+		handler.UpdateExpense(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("DELETE /expenses/{id} successfully deletes", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "/expenses/exp-123", nil)
+		// Inject the path value for the test router
+		req.SetPathValue("id", "exp-123")
+
+		rr := httptest.NewRecorder()
+		handler.DeleteExpense(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
 		}
 	})
 }

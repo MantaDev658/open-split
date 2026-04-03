@@ -112,6 +112,41 @@ func (h *APIHandler) GetBalances(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PUT /expenses/{id}
+func (h *APIHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
+	expenseID := r.PathValue("id")
+
+	var cmd application.UpdateExpenseCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	cmd.ID = expenseID
+
+	// 4. Pass to the Application Service
+	if err := h.expenseService.UpdateExpense(r.Context(), cmd); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status": "expense updated"}`))
+}
+
+// DELETE /expenses/{id}
+func (h *APIHandler) DeleteExpense(w http.ResponseWriter, r *http.Request) {
+	expenseID := r.PathValue("id")
+
+	if err := h.expenseService.DeleteExpense(r.Context(), expenseID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status": "expense deleted"}`))
+}
+
 // POST /users
 func (h *APIHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var cmd application.CreateUserCommand

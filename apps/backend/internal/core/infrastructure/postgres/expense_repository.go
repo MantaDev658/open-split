@@ -262,3 +262,80 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 
 	return results, nil
 }
+
+// completely remove an expense and its associated splits
+func (r *ExpenseRepository) Delete(ctx context.Context, id domain.ExpenseID) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(id)); err != nil {
+		return fmt.Errorf("failed to delete splits: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, "DELETE FROM expenses WHERE id = $1", string(id))
+	if err != nil {
+		return fmt.Errorf("failed to delete expense: %w", err)
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrExpenseNotFound
+	}
+
+	return tx.Commit()
+}
+
+// fully replaces an existing expense's details and completely rewrites its splits
+func (r *ExpenseRepository) Update(ctx context.Context, expense *domain.Expense) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var dbGroupID interface{}
+	if expense.GroupID() != nil {
+		dbGroupID = string(*expense.GroupID())
+	}
+
+	updateQuery := `
+		UPDATE expenses 
+		SET group_id = $1, description = $2, total_cents = $3, payer_id = $4
+		WHERE id = $5
+	`
+	res, err := tx.ExecContext(ctx, updateQuery,
+		dbGroupID,
+		expense.Description(),
+		expense.Total().Int64(),
+		expense.Payer(),
+		string(expense.ID()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update expense: %w", err)
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrExpenseNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(expense.ID())); err != nil {
+		return fmt.Errorf("failed to delete old splits during update: %w", err)
+	}
+
+	insertSplitQuery := `
+		INSERT INTO splits (expense_id, user_id, amount_cents)
+		VALUES ($1, $2, $3)
+	`
+	for _, split := range expense.Splits() {
+		_, err = tx.ExecContext(ctx, insertSplitQuery, string(expense.ID()), string(split.User), split.Amount.Int64())
+		if err != nil {
+			return fmt.Errorf("failed to insert new split: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
