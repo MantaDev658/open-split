@@ -40,9 +40,19 @@ func (h *APIHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"status": "expense created"}`))
 }
 
-// GET /expenses
+// GET /expenses?group_id={optional}
 func (h *APIHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
-	expenses, err := h.expenseService.ListAllExpenses(r.Context())
+	groupID := r.URL.Query().Get("group_id")
+
+	var expenses []*domain.Expense
+	var err error
+
+	if groupID != "" {
+		expenses, err = h.expenseService.ListExpensesByGroup(r.Context(), groupID)
+	} else {
+		expenses, err = h.expenseService.ListAllExpenses(r.Context())
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -71,26 +81,32 @@ func (h *APIHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /balances
+// GET /balances?group_id={optional}
 func (h *APIHandler) GetBalances(w http.ResponseWriter, r *http.Request) {
-	expenses, err := h.expenseService.ListAllExpenses(r.Context())
+	groupID := r.URL.Query().Get("group_id")
+
+	var expenses []*domain.Expense
+	var err error
+
+	if groupID != "" {
+		expenses, err = h.expenseService.ListExpensesByGroup(r.Context(), groupID)
+	} else {
+		expenses, err = h.expenseService.ListAllExpenses(r.Context())
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	netBalances := domain.CalculateNetBalances(expenses)
-	transactions := domain.SimplifyDebts(netBalances)
-
-	response := struct {
-		Balances     map[domain.UserID]int64 `json:"net_balances"`
-		Transactions []domain.Transaction    `json:"suggested_settlements"`
-	}{
-		Balances:     netBalances,
-		Transactions: transactions,
-	}
+	balances := domain.CalculateNetBalances(expenses)
+	suggestions := domain.SimplifyDebts(balances)
 
 	w.Header().Set("Content-Type", "application/json")
+	response := map[string]interface{}{
+		"net_balances":          balances,
+		"suggested_settlements": suggestions,
+	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		return
 	}

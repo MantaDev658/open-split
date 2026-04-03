@@ -34,6 +34,9 @@ func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error
 	)
 	return []*domain.Expense{exp}, nil
 }
+func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+	return nil, nil
+}
 
 type mockUserRepo struct{}
 
@@ -118,6 +121,24 @@ func TestAPIHandler_Users(t *testing.T) {
 	})
 }
 
+func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
+	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
+	uService := application.NewUserService(&mockUserRepo{})
+	gService := application.NewGroupService(&mockGroupRepo{})
+	handler := NewAPIHandler(eService, uService, gService)
+
+	t.Run("GET /balances filters by group_id", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/balances?group_id=g1", nil)
+		rr := httptest.NewRecorder()
+
+		handler.GetBalances(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
+}
+
 func TestAPIHandler_Expenses(t *testing.T) {
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
@@ -152,7 +173,6 @@ func TestAPIHandler_Expenses(t *testing.T) {
 }
 
 func TestAPIHandler_Groups(t *testing.T) {
-	// Initialize services with mocks
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
 	gService := application.NewGroupService(&mockGroupRepo{})

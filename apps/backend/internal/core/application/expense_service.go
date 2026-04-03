@@ -100,3 +100,14 @@ func (s *ExpenseService) ListAllExpenses(ctx context.Context) ([]*domain.Expense
 
 	return expenses, nil
 }
+
+func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string) ([]*domain.Expense, error) {
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	expenses, err := s.expenseRepo.ListByGroup(dbCtx, domain.GroupID(groupID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch group expenses: %w", err)
+	}
+	return expenses, nil
+}

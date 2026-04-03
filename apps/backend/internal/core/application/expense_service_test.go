@@ -21,6 +21,9 @@ func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*do
 func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
 	return nil, nil // Not needed for this test
 }
+func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+	return nil, nil
+}
 
 type mockGroupRepo struct {
 	getByIDFunc func(id domain.GroupID) (*domain.Group, error)

@@ -30,4 +30,5 @@ type ExpenseRepository interface {
 	Save(ctx context.Context, expense *Expense) error
 	GetByID(ctx context.Context, id ExpenseID) (*Expense, error)
 	ListAll(ctx context.Context) ([]*Expense, error)
+	ListByGroup(ctx context.Context, groupID GroupID) ([]*Expense, error)
 }
