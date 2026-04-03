@@ -14,6 +14,9 @@ build:
 	@echo "Building Open Split CLI..."
 	go build -o bin/opensplit-cli ./apps/backend/cmd/cli
 	@echo "✅ Binary compiled to bin/opensplit-cli"
+	@echo "Building Open Split API..."
+	go build -o bin/opensplit-api ./apps/backend/cmd/api
+	@echo "✅ Binary compiled to bin/opensplit-api"
 
 lint:
 	@for mod in $(MODULES); do \
@@ -21,6 +24,8 @@ lint:
 		cd $$mod && $(GOBIN)/golangci-lint run ./... || exit 1; \
 		cd - > /dev/null; \
 	done
+
+check: lint test-race
 
 # --- Testing ---
 
@@ -46,10 +51,14 @@ test-race:
 fuzz:
 	cd apps/backend && go test -fuzz=Fuzz -fuzztime=30s ./internal/expense/domain/...
 
+# --- Run Application ---
+
+run-api: db-up
+	@echo "Starting Open Split API..."
+	go run ./apps/backend/cmd/api/main.go
+
 run-cli:
 	cd apps/backend && go run cmd/cli/main.go -file=../../test_expenses.csv
-
-all: lint test-race
 
 # --- Database & Infrastructure ---
 

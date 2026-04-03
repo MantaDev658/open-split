@@ -61,3 +61,15 @@ func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseComman
 
 	return nil
 }
+
+func (s *ExpenseService) ListAllExpenses(ctx context.Context) ([]*domain.Expense, error) {
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	expenses, err := s.repo.ListAll(dbCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch expenses: %w", err)
+	}
+
+	return expenses, nil
+}
