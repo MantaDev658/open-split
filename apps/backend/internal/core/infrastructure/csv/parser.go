@@ -75,6 +75,7 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 
 		expense, err := domain.NewExpense(
 			domain.ExpenseID(uuid.NewString()),
+			nil,
 			desc,
 			totalMoney,
 			payer,

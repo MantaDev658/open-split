@@ -20,6 +20,12 @@ type UserRepository interface {
 	ListAll(ctx context.Context) ([]User, error)
 }
 
+type GroupRepository interface {
+	Save(ctx context.Context, group *Group) error
+	GetByID(ctx context.Context, id GroupID) (*Group, error)
+	ListForUser(ctx context.Context, userID UserID) ([]*Group, error)
+}
+
 type ExpenseRepository interface {
 	Save(ctx context.Context, expense *Expense) error
 	GetByID(ctx context.Context, id ExpenseID) (*Expense, error)

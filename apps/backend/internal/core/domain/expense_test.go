@@ -47,7 +47,7 @@ func TestNewExpense_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewExpense("exp-1", "Test", total, tt.payer, tt.splits)
+			_, err := NewExpense("exp-1", nil, "Test", total, tt.payer, tt.splits)
 			if err != tt.expectError {
 				t.Errorf("got error %v, want %v", err, tt.expectError)
 			}
@@ -61,7 +61,7 @@ func TestCalculateNetBalances(t *testing.T) {
 	total, _ := money.New(3000)
 	split15, _ := money.New(1500)
 
-	exp, _ := NewExpense("exp-1", "Dinner", total, "Alice", []Split{
+	exp, _ := NewExpense("exp-1", nil, "Dinner", total, "Alice", []Split{
 		{User: "Alice", Amount: split15},
 		{User: "Bob", Amount: split15},
 	})

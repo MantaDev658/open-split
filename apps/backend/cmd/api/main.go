@@ -27,20 +27,30 @@ func main() {
 	defer db.Close()
 
 	userRepo := postgres.NewUserRepository(db)
+	groupRepo := postgres.NewGroupRepository(db)
 	expenseRepo := postgres.NewExpenseRepository(db)
 
 	userService := application.NewUserService(userRepo)
-	expenseService := application.NewExpenseService(expenseRepo)
+	groupService := application.NewGroupService(groupRepo)
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
 
-	handler := openhttp.NewAPIHandler(expenseService, userService)
+	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
 
 	mux := http.NewServeMux()
 
+	// Expense
 	mux.HandleFunc("POST /expenses", handler.CreateExpense)
 	mux.HandleFunc("GET /expenses", handler.ListExpenses)
 	mux.HandleFunc("GET /balances", handler.GetBalances)
+
+	// User
 	mux.HandleFunc("POST /users", handler.CreateUser)
 	mux.HandleFunc("GET /users", handler.ListUsers)
+
+	// Group
+	mux.HandleFunc("POST /groups", handler.CreateGroup)
+	mux.HandleFunc("POST /groups/{id}/members", handler.AddGroupMember)
+	mux.HandleFunc("GET /groups", handler.ListGroups)
 
 	port := ":8080"
 	fmt.Printf("🚀 Open Split API running on http://localhost%s\n", port)

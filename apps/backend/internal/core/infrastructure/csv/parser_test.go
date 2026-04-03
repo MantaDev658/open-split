@@ -33,8 +33,8 @@ func TestParseExpenses_Strategies(t *testing.T) {
 
 	t.Run("EVEN Strategy", func(t *testing.T) {
 		exp := expenses[0]
-		if exp.TotalAmount().Int64() != 9000 {
-			t.Errorf("Expected total 9000, got %d", exp.TotalAmount().Int64())
+		if exp.Total().Int64() != 9000 {
+			t.Errorf("Expected total 9000, got %d", exp.Total().Int64())
 		}
 		splits := exp.Splits()
 		if len(splits) != 3 {

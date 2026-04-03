@@ -1,45 +1,17 @@
-package postgres_test
+package postgres
 
 import (
 	"context"
-	"database/sql"
-	"os"
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
-	"opensplit/apps/backend/internal/core/infrastructure/postgres"
 )
-
-func setupTestDB(t *testing.T) *sql.DB {
-	dbURL := os.Getenv("TEST_DB_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DB_URL not set. Skipping User integration test.")
-	}
-
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		t.Fatalf("failed to connect to test db: %v", err)
-	}
-
-	// clean tables before running to ensure an isolated environment
-	_, _ = db.Exec("DELETE FROM splits")
-	_, _ = db.Exec("DELETE FROM expenses")
-	_, _ = db.Exec("DELETE FROM users")
-
-	// seed required users for Foreign Key constraints
-	_, err = db.Exec("INSERT INTO users (id, display_name) VALUES ('Alice', 'Alice'), ('Bob', 'Bob')")
-	if err != nil {
-		t.Fatalf("failed to seed users: %v", err)
-	}
-
-	return db
-}
 
 func TestUserRepository_Lifecycle(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	repo := postgres.NewUserRepository(db)
+	repo := NewUserRepository(db)
 	ctx := context.Background()
 
 	testUser := domain.User{

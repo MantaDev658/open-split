@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: setup lint test test-race fuzz run-cli
+.PHONY: setup-lint lint test test-race fuzz run-cli
 
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
@@ -7,7 +7,9 @@ DB_URL = "postgresql://postgres:password@localhost:5432/opensplit?sslmode=disabl
 MIGRATE_PATH = apps/backend/internal/core/infrastructure/postgres/migrations
 MODULES = libs/shared apps/backend
 
-setup:
+# --- Build & Validation ---
+
+setup-lint:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 build:
@@ -25,16 +27,11 @@ lint:
 		cd - > /dev/null; \
 	done
 
-check: lint test test-race
+check: build lint
 
 # --- Testing ---
 
-# We isolate integration tests so they don't slow down our standard 'make test'
-test-integration: db-up migrate-up
-	@echo "Running PostgreSQL Integration Tests..."
-	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/core/infrastructure/postgres/...
-
-test:
+test-unit:
 	@for mod in $(MODULES); do \
 		echo "Testing $$mod..."; \
 		cd $$mod && go test -v -cover ./... || exit 1; \
@@ -48,8 +45,16 @@ test-race:
 		cd - > /dev/null; \
 	done
 
-fuzz:
+test-fuzz:
 	cd apps/backend && go test -fuzz=Fuzz -fuzztime=30s ./internal/core/domain/...
+
+	# We isolate integration tests so they don't slow down our standard 'make test'
+
+test-integration:
+	@echo "Running PostgreSQL Integration Tests..."
+	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/core/infrastructure/postgres/...
+
+test: test-unit test-race test-fuzz db-up migrate-up test-integration db-down
 
 # --- Run Application ---
 

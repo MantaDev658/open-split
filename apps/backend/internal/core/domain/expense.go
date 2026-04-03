@@ -23,14 +23,15 @@ type Split struct {
 
 type Expense struct {
 	id          ExpenseID
+	groupID     *GroupID
 	description string
-	totalAmount money.Money
+	total       money.Money
 	payer       UserID
 	splits      []Split
 	createdAt   time.Time
 }
 
-func NewExpense(id ExpenseID, desc string, total money.Money, payer UserID, splits []Split) (*Expense, error) {
+func NewExpense(id ExpenseID, groupID *GroupID, desc string, total money.Money, payer UserID, splits []Split) (*Expense, error) {
 	if payer == "" {
 		return nil, ErrMissingPayer
 	}
@@ -49,26 +50,28 @@ func NewExpense(id ExpenseID, desc string, total money.Money, payer UserID, spli
 
 	return &Expense{
 		id:          id,
+		groupID:     groupID,
 		description: desc,
-		totalAmount: total,
+		total:       total,
 		payer:       payer,
 		splits:      splits,
 		createdAt:   time.Now().UTC(),
 	}, nil
 }
 
-func (e *Expense) ID() ExpenseID            { return e.id }
-func (e *Expense) Description() string      { return e.description }
-func (e *Expense) TotalAmount() money.Money { return e.totalAmount }
-func (e *Expense) Payer() UserID            { return e.payer }
-func (e *Expense) Splits() []Split          { return e.splits }
+func (e *Expense) ID() ExpenseID       { return e.id }
+func (e *Expense) GroupID() *GroupID   { return e.groupID }
+func (e *Expense) Description() string { return e.description }
+func (e *Expense) Total() money.Money  { return e.total }
+func (e *Expense) Payer() UserID       { return e.payer }
+func (e *Expense) Splits() []Split     { return e.splits }
 
 func CalculateNetBalances(expenses []*Expense) map[UserID]int64 {
 	balances := make(map[UserID]int64)
 
 	for _, exp := range expenses {
 		// the payer's net position goes UP by the total amount they fronted
-		balances[exp.Payer()] += exp.TotalAmount().Int64()
+		balances[exp.Payer()] += exp.Total().Int64()
 
 		// every user's net position goes DOWN by the exact amount of their split
 		for _, split := range exp.Splits() {

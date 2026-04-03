@@ -8,18 +8,30 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 )
 
-type mockRepo struct {
+type mockExpenseRepo struct {
 	saveFunc func(ctx context.Context, expense *domain.Expense) error
 }
 
-func (m *mockRepo) Save(ctx context.Context, expense *domain.Expense) error {
+func (m *mockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
 	return m.saveFunc(ctx, expense)
 }
-func (m *mockRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
+func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
 	return nil, nil // Not needed for this test
 }
-func (m *mockRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
+func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
 	return nil, nil // Not needed for this test
+}
+
+type mockGroupRepo struct {
+	getByIDFunc func(id domain.GroupID) (*domain.Group, error)
+}
+
+func (m *mockGroupRepo) Save(ctx context.Context, g *domain.Group) error { return nil }
+func (m *mockGroupRepo) ListForUser(ctx context.Context, u domain.UserID) ([]*domain.Group, error) {
+	return nil, nil
+}
+func (m *mockGroupRepo) GetByID(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
+	return m.getByIDFunc(id)
 }
 
 func TestExpenseService_AddExpense(t *testing.T) {
@@ -73,8 +85,9 @@ func TestExpenseService_AddExpense(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockRepo{saveFunc: tt.mockSave}
-			service := NewExpenseService(repo)
+			expenseRepo := &mockExpenseRepo{saveFunc: tt.mockSave}
+			groupRepo := &mockGroupRepo{}
+			service := NewExpenseService(expenseRepo, groupRepo)
 
 			err := service.AddExpense(context.Background(), tt.cmd)
 			if (err != nil) != tt.expectError {
@@ -82,4 +95,28 @@ func TestExpenseService_AddExpense(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExpenseService_AddExpense_WithGroups(t *testing.T) {
+	t.Run("Fails if payer is not in group", func(t *testing.T) {
+		eRepo := &mockExpenseRepo{}
+		gRepo := &mockGroupRepo{
+			getByIDFunc: func(id domain.GroupID) (*domain.Group, error) {
+				return &domain.Group{ID: id, Name: "Ski Trip", Members: []domain.UserID{"Bob"}}, nil
+			},
+		}
+		service := NewExpenseService(eRepo, gRepo)
+
+		cmd := CreateExpenseCommand{
+			GroupID:     "some-uuid",
+			Description: "Dinner",
+			Payer:       "Alice", // Alice is NOT in the members list above
+			Splits:      map[string]int64{"Alice": 1000},
+		}
+
+		err := service.AddExpense(context.Background(), cmd)
+		if err == nil {
+			t.Error("expected error when payer is not in group, got nil")
+		}
+	})
 }

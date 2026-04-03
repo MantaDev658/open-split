@@ -2,8 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
-	"os"
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -12,31 +10,6 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
-
-func setupTestDB(t *testing.T) *sql.DB {
-	dbURL := os.Getenv("TEST_DB_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DB_URL not set. Skipping Postgres integration test.")
-	}
-
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		t.Fatalf("failed to connect to test db: %v", err)
-	}
-
-	// clean tables before running to ensure an isolated environment
-	_, _ = db.Exec("DELETE FROM splits")
-	_, _ = db.Exec("DELETE FROM expenses")
-	_, _ = db.Exec("DELETE FROM users")
-
-	// seed required users for Foreign Key constraints
-	_, err = db.Exec("INSERT INTO users (id, display_name) VALUES ('Alice', 'Alice'), ('Bob', 'Bob')")
-	if err != nil {
-		t.Fatalf("failed to seed users: %v", err)
-	}
-
-	return db
-}
 
 func TestExpenseRepository_Lifecycle(t *testing.T) {
 	db := setupTestDB(t)
@@ -52,6 +25,7 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 
 	exp, err := domain.NewExpense(
 		expenseID,
+		nil,
 		"Integration Test Dinner",
 		total,
 		"Alice",
@@ -77,8 +51,8 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 	if fetchedExp.ID() != exp.ID() {
 		t.Errorf("expected ID %s, got %s", exp.ID(), fetchedExp.ID())
 	}
-	if fetchedExp.TotalAmount().Int64() != 5000 {
-		t.Errorf("expected total 5000, got %d", fetchedExp.TotalAmount().Int64())
+	if fetchedExp.Total().Int64() != 5000 {
+		t.Errorf("expected total 5000, got %d", fetchedExp.Total().Int64())
 	}
 	if len(fetchedExp.Splits()) != 2 {
 		t.Errorf("expected 2 splits, got %d", len(fetchedExp.Splits()))

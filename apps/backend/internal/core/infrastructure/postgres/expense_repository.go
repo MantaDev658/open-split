@@ -23,20 +23,22 @@ func (r *ExpenseRepository) Save(ctx context.Context, expense *domain.Expense) e
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	// ignore the rollback error, as it will naturally fail if we already committed.
-	defer func() {
-		_ = tx.Rollback()
-	}()
+	var dbGroupID interface{}
+	if expense.GroupID() != nil {
+		dbGroupID = string(*expense.GroupID())
+	}
 
 	insertExpenseQuery := `
-		INSERT INTO expenses (id, description, total_cents, payer_id)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO expenses (id, group_id, description, total_cents, payer_id)
+		VALUES ($1, $2, $3, $4, $5)
 	`
 	_, err = tx.ExecContext(ctx, insertExpenseQuery,
 		expense.ID(),
+		dbGroupID,
 		expense.Description(),
-		expense.TotalAmount().Int64(),
+		expense.Total().Int64(),
 		expense.Payer(),
 	)
 	if err != nil {
@@ -48,29 +50,24 @@ func (r *ExpenseRepository) Save(ctx context.Context, expense *domain.Expense) e
 		VALUES ($1, $2, $3)
 	`
 	for _, split := range expense.Splits() {
-		_, err = tx.ExecContext(ctx, insertSplitQuery,
-			expense.ID(),
-			split.User,
-			split.Amount.Int64(),
-		)
+		_, err = tx.ExecContext(ctx, insertSplitQuery, expense.ID(), split.User, split.Amount.Int64())
 		if err != nil {
-			return fmt.Errorf("failed to insert split for user %s: %w", split.User, err)
+			return fmt.Errorf("failed to insert split: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-
 	return nil
 }
 
 func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
-	// 1. Fetch the main Expense row
 	var desc, payer string
 	var totalCents int64
-	err := r.db.QueryRowContext(ctx, "SELECT description, total_cents, payer_id FROM expenses WHERE id = $1", id).
-		Scan(&desc, &totalCents, &payer)
+	var dbGroupID sql.NullString
+	err := r.db.QueryRowContext(ctx, "SELECT group_id, description, total_cents, payer_id FROM expenses WHERE id = $1", id).
+		Scan(&dbGroupID, &desc, &totalCents, &payer)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrExpenseNotFound
@@ -99,13 +96,19 @@ func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*
 		})
 	}
 
+	var groupIDPtr *domain.GroupID
+	if dbGroupID.Valid {
+		gID := domain.GroupID(dbGroupID.String)
+		groupIDPtr = &gID
+	}
+
 	totalMoney, _ := money.New(totalCents)
-	return domain.NewExpense(id, desc, totalMoney, domain.UserID(payer), splits)
+	return domain.NewExpense(id, groupIDPtr, desc, totalMoney, domain.UserID(payer), splits)
 }
 
 func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, error) {
 	query := `
-		SELECT e.id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
+		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
 		FROM expenses e
 		JOIN splits s ON e.id = s.expense_id
 		ORDER BY e.created_at ASC
@@ -118,6 +121,7 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 
 	type rawExpense struct {
 		id          string
+		groupID     sql.NullString
 		description string
 		totalCents  int64
 		payer       string
@@ -128,15 +132,17 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 
 	for rows.Next() {
 		var expID, desc, payer, splitUser string
+		var exGroupID sql.NullString
 		var totalCents, splitCents int64
 
-		if err := rows.Scan(&expID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
+		if err := rows.Scan(&expID, &exGroupID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		if _, exists := expenseMap[expID]; !exists {
 			expenseMap[expID] = &rawExpense{
 				id:          expID,
+				groupID:     exGroupID,
 				description: desc,
 				totalCents:  totalCents,
 				payer:       payer,
@@ -155,8 +161,14 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 	for _, id := range orderedIDs {
 		raw := expenseMap[id]
 		totalMoney, _ := money.New(raw.totalCents)
+		var groupIDPtr *domain.GroupID
+		if raw.groupID.Valid {
+			gID := domain.GroupID(raw.groupID.String)
+			groupIDPtr = &gID
+		}
 		exp, err := domain.NewExpense(
 			domain.ExpenseID(raw.id),
+			groupIDPtr,
 			raw.description,
 			totalMoney,
 			domain.UserID(raw.payer),

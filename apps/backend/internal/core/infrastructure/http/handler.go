@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"opensplit/apps/backend/internal/core/application"
@@ -11,12 +12,14 @@ import (
 type APIHandler struct {
 	expenseService *application.ExpenseService
 	userService    *application.UserService
+	groupService   *application.GroupService
 }
 
-func NewAPIHandler(es *application.ExpenseService, us *application.UserService) *APIHandler {
+func NewAPIHandler(es *application.ExpenseService, us *application.UserService, gs *application.GroupService) *APIHandler {
 	return &APIHandler{
 		expenseService: es,
 		userService:    us,
+		groupService:   gs,
 	}
 }
 
@@ -57,7 +60,7 @@ func (h *APIHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
 		res = append(res, responseData{
 			ID:          string(exp.ID()),
 			Description: exp.Description(),
-			Total:       exp.TotalAmount().Int64(),
+			Total:       exp.Total().Int64(),
 			Payer:       string(exp.Payer()),
 		})
 	}
@@ -122,4 +125,66 @@ func (h *APIHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(users); err != nil {
 		return
 	}
+}
+
+// POST /groups
+func (h *APIHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var cmd application.CreateGroupCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	groupID, err := h.groupService.CreateGroup(r.Context(), cmd)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte(fmt.Sprintf(`{"status": "group created", "group_id": "%s"}`, groupID)))
+}
+
+// POST /groups/{id}/members
+func (h *APIHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("id")
+
+	var cmd struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.groupService.AddMemberToGroup(r.Context(), groupID, cmd.UserID); err != nil {
+		if err == domain.ErrUserAlreadyInGroup {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status": "member added"}`))
+}
+
+// GET /groups
+func (h *APIHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		http.Error(w, `{"error": "user_id is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	groups, err := h.groupService.ListGroupsForUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(groups)
 }
