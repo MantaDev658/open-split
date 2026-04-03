@@ -3,7 +3,7 @@ package domain
 import (
 	"testing"
 
-	"opensplit/libs/go-core/money"
+	"opensplit/libs/shared/money"
 )
 
 func TestNewExpense_Validation(t *testing.T) {

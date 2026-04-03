@@ -4,8 +4,8 @@
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
 DB_URL = "postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable"
-MIGRATE_PATH = apps/backend/internal/expense/infrastructure/postgres/migrations
-MODULES = libs/go-core apps/backend
+MIGRATE_PATH = apps/backend/internal/core/infrastructure/postgres/migrations
+MODULES = libs/shared apps/backend
 
 setup:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -32,7 +32,7 @@ check: lint test-race
 # We isolate integration tests so they don't slow down our standard 'make test'
 test-integration: db-up migrate-up
 	@echo "Running PostgreSQL Integration Tests..."
-	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/expense/infrastructure/postgres/...
+	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/core/infrastructure/postgres/...
 
 test:
 	@for mod in $(MODULES); do \
@@ -49,7 +49,7 @@ test-race:
 	done
 
 fuzz:
-	cd apps/backend && go test -fuzz=Fuzz -fuzztime=30s ./internal/expense/domain/...
+	cd apps/backend && go test -fuzz=Fuzz -fuzztime=30s ./internal/core/domain/...
 
 # --- Run Application ---
 

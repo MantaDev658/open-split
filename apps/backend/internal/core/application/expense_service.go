@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"opensplit/apps/backend/internal/core/domain"
-	"opensplit/libs/go-core/money"
+	"opensplit/libs/shared/money"
 
 	"github.com/google/uuid"
 )

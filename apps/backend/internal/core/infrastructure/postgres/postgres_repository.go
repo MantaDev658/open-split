@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"opensplit/apps/backend/internal/core/domain"
-	"opensplit/libs/go-core/money"
+	"opensplit/libs/shared/money"
 )
 
 type ExpenseRepository struct {

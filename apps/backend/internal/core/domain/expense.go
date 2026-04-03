@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"opensplit/libs/go-core/money"
+	"opensplit/libs/shared/money"
 )
 
 type ExpenseID string
