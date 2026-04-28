@@ -1,0 +1,69 @@
+# .golangci.yml
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    # --- 1. Core Essentials ---
+    - govet         # Standard Go static analysis
+    - staticcheck   # "govet on steroids" - catches a massive amount of standard bugs
+    - errcheck      # Ensures errors are handled
+    - ineffassign   # Detects unused assignments
+    - unused        # Cleans up dead code (constants, variables, functions)
+
+    # --- 2. Bug Hunters (Devious runtime panics & leaks) ---
+    - bodyclose     # Forgets to close HTTP response bodies (Memory leak)
+    - rowserrcheck  # Forgets to check db.Rows errors (Database leak)
+    - sqlclosecheck # Forgets to close sql.Rows/Stmt (Database leak)
+    - nilerr        # Returning nil instead of the actual error variable
+    - nilnil        # Returning (nil, nil) instead of a valid struct or error
+    - errorlint     # Catches bugs with Go 1.13+ error wrapping/errors.Is
+    - copyloopvar   # Catches the classic Go loop variable pointer bug (Go 1.22+)
+
+    # --- 3. Security & Architecture ---
+    - gosec         # Scans for hardcoded credentials, SQL injection, etc.
+    - depguard      # Enforces boundaries
+
+    # --- 4. Cleanliness ---
+    - gocritic      # General-purpose code diagnostic tool
+    - revive        # Fast, configurable replacement for golint
+    - goimports     # Automatically formats and groups your imports correctly
+
+linters-settings:
+  govet:
+    enable:
+      - shadow # Warns if you accidentally shadow a higher-level variable
+  revive:
+    rules:
+      - name: exported # Requires comments on exported (public) functions/structs
+        arguments:
+          - "checkPrivateReceivers"
+  depguard:
+    rules:
+      Main:
+        files:
+          - $all
+        allow:
+          - $gostd
+          - github.com/lib/pq
+          - github.com/google/uuid
+          - opensplit/libs/shared/money
+          - opensplit/apps/backend/internal/core/domain
+          - opensplit/apps/backend/internal/core/application
+          - opensplit/apps/backend/internal/core/infrastructure/http
+          - opensplit/apps/backend/internal/core/infrastructure/postgres
+          - opensplit/apps/backend/internal/core/infrastructure/csv
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Don't force strict error checking or security audits on test files.
+    # Tests are allowed to panic or use hardcoded dummy credentials.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec

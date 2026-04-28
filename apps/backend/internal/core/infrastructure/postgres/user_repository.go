@@ -46,5 +46,8 @@ func (r *UserRepository) ListAll(ctx context.Context) ([]domain.User, error) {
 		u.ID = domain.UserID(id)
 		users = append(users, u)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 	return users, nil
 }

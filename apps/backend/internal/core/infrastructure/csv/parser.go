@@ -2,6 +2,7 @@ package csv
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	for {
 		lineNum++
 		record, err := reader.Read()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

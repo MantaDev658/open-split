@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -45,7 +46,7 @@ func TestGroup_Membership(t *testing.T) {
 		}
 
 		err = group.AddMember("Bob")
-		if err != ErrUserAlreadyInGroup {
+		if !errors.Is(err, ErrUserAlreadyInGroup) {
 			t.Errorf("expected ErrUserAlreadyInGroup, got %v", err)
 		}
 

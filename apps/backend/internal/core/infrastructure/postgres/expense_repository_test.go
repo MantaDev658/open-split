@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -79,7 +80,7 @@ func TestExpenseRepository_GetByID_NotFound(t *testing.T) {
 
 	randomID := domain.ExpenseID(uuid.NewString())
 	_, err := repo.GetByID(context.Background(), randomID)
-	if err != domain.ErrExpenseNotFound {
+	if !errors.Is(err, domain.ErrExpenseNotFound) {
 		t.Errorf("expected ErrExpenseNotFound, got %v", err)
 	}
 }

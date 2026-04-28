@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -210,7 +211,7 @@ func (h *APIHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.groupService.AddMemberToGroup(r.Context(), groupID, cmd.UserID); err != nil {
-		if err == domain.ErrUserAlreadyInGroup {
+		if errors.Is(err, domain.ErrUserAlreadyInGroup) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

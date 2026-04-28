@@ -60,9 +60,9 @@ func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseComman
 		gID := domain.GroupID(cmd.GroupID)
 		groupIDPtr = &gID
 
-		group, err := s.groupRepo.GetByID(ctx, gID)
-		if err != nil {
-			return fmt.Errorf("failed to validate group: %w", err)
+		group, groupErr := s.groupRepo.GetByID(ctx, gID)
+		if groupErr != nil {
+			return fmt.Errorf("failed to validate group: %w", groupErr)
 		}
 
 		if !group.HasMember(domain.UserID(cmd.Payer)) {
@@ -141,9 +141,9 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCom
 		gID := domain.GroupID(cmd.GroupID)
 		groupIDPtr = &gID
 
-		group, err := s.groupRepo.GetByID(ctx, gID)
-		if err != nil {
-			return fmt.Errorf("failed to validate group: %w", err)
+		group, groupErr := s.groupRepo.GetByID(ctx, gID)
+		if groupErr != nil {
+			return fmt.Errorf("failed to validate group: %w", groupErr)
 		}
 		if !group.HasMember(domain.UserID(cmd.Payer)) {
 			return fmt.Errorf("payer %s is not a member of group %s", cmd.Payer, group.Name)

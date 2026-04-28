@@ -18,7 +18,7 @@ type mockExpenseRepo struct{}
 
 func (m *mockExpenseRepo) Save(ctx context.Context, e *domain.Expense) error { return nil }
 func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
-	return nil, nil
+	return nil, domain.ErrExpenseNotFound
 }
 func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
 	total, _ := money.New(3000)
@@ -34,7 +34,7 @@ func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error
 	return []*domain.Expense{exp}, nil
 }
 func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
-	return nil, nil
+	return []*domain.Expense{}, nil
 }
 
 func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }

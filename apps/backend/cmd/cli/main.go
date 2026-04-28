@@ -59,11 +59,12 @@ func printRawLedger(balances map[domain.UserID]int64) {
 
 	for _, user := range users {
 		balance := float64(balances[user]) / 100.0
-		if balance > 0 {
+		switch {
+		case balance > 0:
 			fmt.Printf("✅ %-10s is OWED:   $%7.2f\n", user, balance)
-		} else if balance < 0 {
+		case balance < 0:
 			fmt.Printf("🔴 %-10s OWES:       $%7.2f\n", user, -balance)
-		} else {
+		default:
 			fmt.Printf("⚪ %-10s is SETTLED: $%7.2f\n", user, balance)
 		}
 	}

@@ -95,6 +95,9 @@ func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*
 			Amount: amount,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 
 	var groupIDPtr *domain.GroupID
 	if dbGroupID.Valid {
@@ -155,6 +158,9 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 			User:   domain.UserID(splitUser),
 			Amount: splitAmt,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
 	var results []*domain.Expense
@@ -234,6 +240,9 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 			Amount: splitAmt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 
 	var results []*domain.Expense
 	for _, id := range orderedIDs {
@@ -271,8 +280,8 @@ func (r *ExpenseRepository) Delete(ctx context.Context, id domain.ExpenseID) err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(id)); err != nil {
-		return fmt.Errorf("failed to delete splits: %w", err)
+	if _, delErr := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(id)); delErr != nil {
+		return fmt.Errorf("failed to delete splits: %w", delErr)
 	}
 
 	res, err := tx.ExecContext(ctx, "DELETE FROM expenses WHERE id = $1", string(id))
@@ -322,8 +331,8 @@ func (r *ExpenseRepository) Update(ctx context.Context, expense *domain.Expense)
 		return domain.ErrExpenseNotFound
 	}
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(expense.ID())); err != nil {
-		return fmt.Errorf("failed to delete old splits during update: %w", err)
+	if _, delErr := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(expense.ID())); delErr != nil {
+		return fmt.Errorf("failed to delete old splits during update: %w", delErr)
 	}
 
 	insertSplitQuery := `

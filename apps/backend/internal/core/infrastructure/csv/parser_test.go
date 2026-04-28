@@ -17,8 +17,8 @@ func TestParseExpenses_Strategies(t *testing.T) {
 2026-04-03,Hotel,Lodging,30000,Charlie,PERCENT,Alice:25,Bob:25,Charlie:50
 2026-04-04,Drinks,Entertainment,1000,Alice,SHARES,Alice:1,Bob:1,Charlie:1
 `
-	if _, err := tempFile.WriteString(csvData); err != nil {
-		t.Fatalf("failed to write temp file: %v", err)
+	if _, writeErr := tempFile.WriteString(csvData); writeErr != nil {
+		t.Fatalf("failed to write temp file: %v", writeErr)
 	}
 	tempFile.Close()
 

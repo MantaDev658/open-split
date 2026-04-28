@@ -42,7 +42,7 @@ func (m Money) Distribute(n int) []Money {
 	remainder := int(m % Money(n))
 
 	results := make([]Money, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		results[i] = lowResult
 		if i < remainder {
 			results[i]++

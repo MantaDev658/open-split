@@ -2,10 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"opensplit/apps/backend/internal/core/application"
 	openhttp "opensplit/apps/backend/internal/core/infrastructure/http"
@@ -56,5 +58,12 @@ func main() {
 
 	port := ":8080"
 	fmt.Printf("🚀 Open Split API running on http://localhost%s\n", port)
-	log.Fatal(http.ListenAndServe(port, mux))
+	server := &http.Server{
+		Addr:              port,
+		Handler:           mux,
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("Server crashed: %v", err)
+	}
 }

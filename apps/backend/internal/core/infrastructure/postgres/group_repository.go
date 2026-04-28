@@ -72,6 +72,9 @@ func (r *GroupRepository) GetByID(ctx context.Context, id domain.GroupID) (*doma
 		}
 		members = append(members, domain.UserID(uid))
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 
 	return &domain.Group{
 		ID:      id,
@@ -106,22 +109,30 @@ func (r *GroupRepository) ListForUser(ctx context.Context, userID domain.UserID)
 			Members: []domain.UserID{},
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 
 	for _, g := range groups {
-		mRows, err := r.db.QueryContext(ctx, "SELECT user_id FROM group_members WHERE group_id = $1", string(g.ID))
+		err := func() error {
+			mRows, err := r.db.QueryContext(ctx, "SELECT user_id FROM group_members WHERE group_id = $1", string(g.ID))
+			if err != nil {
+				return err
+			}
+			defer mRows.Close() // Safe here!
+
+			for mRows.Next() {
+				var uid string
+				if err := mRows.Scan(&uid); err == nil {
+					g.Members = append(g.Members, domain.UserID(uid))
+				}
+			}
+			return mRows.Err()
+		}()
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to get members for group %s: %w", g.ID, err)
 		}
-
-		var members []domain.UserID
-		for mRows.Next() {
-			var uid string
-			if err := mRows.Scan(&uid); err == nil {
-				members = append(members, domain.UserID(uid))
-			}
-		}
-		mRows.Close()
-		g.Members = members
 	}
 
 	return groups, nil
