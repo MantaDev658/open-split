@@ -6,42 +6,8 @@ import (
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/mocks"
 )
-
-type mockUserRepo struct {
-	saveFunc       func(ctx context.Context, u domain.User) error
-	listAllFunc    func(ctx context.Context) ([]domain.User, error)
-	updateFunc     func(ctx context.Context, u domain.UserID, d string) error
-	softDeleteFunc func(ctx context.Context, u domain.UserID) error
-}
-
-func (m *mockUserRepo) Save(ctx context.Context, u domain.User) error {
-	if m.saveFunc != nil {
-		return m.saveFunc(ctx, u)
-	}
-	return nil
-}
-
-func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
-	if m.listAllFunc != nil {
-		return m.listAllFunc(ctx)
-	}
-	return nil, nil
-}
-
-func (m *mockUserRepo) Update(ctx context.Context, u domain.UserID, d string) error {
-	if m.updateFunc != nil {
-		return m.updateFunc(ctx, u, d)
-	}
-	return nil
-}
-
-func (m *mockUserRepo) SoftDelete(ctx context.Context, u domain.UserID) error {
-	if m.softDeleteFunc != nil {
-		return m.softDeleteFunc(ctx, u)
-	}
-	return nil
-}
 
 func TestUserService_CreateUser(t *testing.T) {
 	tests := []struct {
@@ -72,7 +38,7 @@ func TestUserService_CreateUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockUserRepo{saveFunc: tt.mockSave}
+			repo := &mocks.MockUserRepo{SaveFunc: tt.mockSave}
 			service := NewUserService(repo)
 
 			err := service.CreateUser(context.Background(), tt.cmd)
@@ -84,8 +50,8 @@ func TestUserService_CreateUser(t *testing.T) {
 }
 
 func TestUserService_ListUsers(t *testing.T) {
-	repo := &mockUserRepo{
-		listAllFunc: func(ctx context.Context) ([]domain.User, error) {
+	repo := &mocks.MockUserRepo{
+		ListAllFunc: func(ctx context.Context) ([]domain.User, error) {
 			return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 		},
 	}
@@ -101,7 +67,7 @@ func TestUserService_ListUsers(t *testing.T) {
 }
 
 func TestUserService_UpdateUser(t *testing.T) {
-	repo := &mockUserRepo{}
+	repo := &mocks.MockUserRepo{}
 	service := NewUserService(repo)
 
 	t.Run("Fails with empty name", func(t *testing.T) {
@@ -120,7 +86,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 }
 
 func TestUserService_DeleteUser(t *testing.T) {
-	repo := &mockUserRepo{}
+	repo := &mocks.MockUserRepo{}
 	service := NewUserService(repo)
 
 	err := service.DeleteUser(context.Background(), "Alice")

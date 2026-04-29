@@ -10,74 +10,26 @@ import (
 
 	"opensplit/apps/backend/internal/core/application"
 	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/mocks"
 	"opensplit/libs/shared/money"
 )
 
-// Expense
-type mockExpenseRepo struct{}
-
-func (m *mockExpenseRepo) Save(ctx context.Context, e *domain.Expense) error { return nil }
-func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
-	return nil, domain.ErrExpenseNotFound
-}
-func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
-	total, _ := money.New(3000)
-	split, _ := money.New(1500)
-	exp, _ := domain.NewExpense(
-		domain.ExpenseID("test-id"),
-		nil,
-		"Test Dinner",
-		total,
-		"Alice",
-		[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}},
-	)
-	return []*domain.Expense{exp}, nil
-}
-func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
-	return []*domain.Expense{}, nil
-}
-
-func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }
-func (m *mockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error     { return nil }
-
-// User
-type mockUserRepo struct{}
-
-func (m *mockUserRepo) Save(ctx context.Context, u domain.User) error { return nil }
-func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
-	return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
-}
-func (m *mockUserRepo) Update(ctx context.Context, u domain.UserID, d string) error { return nil }
-func (m *mockUserRepo) SoftDelete(ctx context.Context, u domain.UserID) error       { return nil }
-
-// Group
-type mockGroupRepo struct{}
-
-func (m *mockGroupRepo) Save(ctx context.Context, g *domain.Group) error { return nil }
-func (m *mockGroupRepo) ListForUser(ctx context.Context, u domain.UserID) ([]*domain.Group, error) {
-	return []*domain.Group{
-		{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}},
-	}, nil
-}
-func (m *mockGroupRepo) GetByID(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
-	return &domain.Group{
-		ID:      id,
-		Name:    "Ski Trip 2026",
-		Members: []domain.UserID{"Alice"},
-	}, nil
-}
-func (m *mockGroupRepo) UpdateName(ctx context.Context, id domain.GroupID, n string) error {
-	return nil
-}
-func (m *mockGroupRepo) Delete(ctx context.Context, id domain.GroupID) error { return nil }
-func (m *mockGroupRepo) RemoveMember(ctx context.Context, id domain.GroupID, u domain.UserID) error {
-	return nil
-}
-
 func TestAPIHandler_GetBalances(t *testing.T) {
-	expenseRepo := &mockExpenseRepo{}
-	userRepo := &mockUserRepo{}
-	groupRepo := &mockGroupRepo{}
+	expenseRepo := &mocks.MockExpenseRepo{ListAllFunc: func(ctx context.Context) ([]*domain.Expense, error) {
+		total, _ := money.New(3000)
+		split, _ := money.New(1500)
+		exp, _ := domain.NewExpense(
+			domain.ExpenseID("test-id"),
+			nil,
+			"Test Dinner",
+			total,
+			"Alice",
+			[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}},
+		)
+		return []*domain.Expense{exp}, nil
+	}}
+	userRepo := &mocks.MockUserRepo{}
+	groupRepo := &mocks.MockGroupRepo{}
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
 	userService := application.NewUserService(userRepo)
 	groupService := application.NewGroupService(groupRepo, expenseRepo)
@@ -102,9 +54,13 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 }
 
 func TestAPIHandler_Users(t *testing.T) {
-	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
-	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
+	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
+	uService := application.NewUserService(&mocks.MockUserRepo{
+		ListAllFunc: func(ctx context.Context) ([]domain.User, error) {
+			return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
+		},
+	})
+	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("POST /users creates a user", func(t *testing.T) {
@@ -158,9 +114,9 @@ func TestAPIHandler_Users(t *testing.T) {
 }
 
 func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
-	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
-	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
+	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
+	uService := application.NewUserService(&mocks.MockUserRepo{})
+	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("GET /balances filters by group_id", func(t *testing.T) {
@@ -176,10 +132,25 @@ func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 }
 
 func TestAPIHandler_Expenses(t *testing.T) {
-	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
-	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
-	handler := NewAPIHandler(eService, uService, gService)
+	expenseRepo := &mocks.MockExpenseRepo{ListAllFunc: func(ctx context.Context) ([]*domain.Expense, error) {
+		total, _ := money.New(3000)
+		split, _ := money.New(1500)
+		exp, _ := domain.NewExpense(
+			domain.ExpenseID("test-id"),
+			nil,
+			"Test Dinner",
+			total,
+			"Alice",
+			[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}},
+		)
+		return []*domain.Expense{exp}, nil
+	}}
+	userRepo := &mocks.MockUserRepo{}
+	groupRepo := &mocks.MockGroupRepo{}
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	userService := application.NewUserService(userRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo)
+	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	t.Run("GET /expenses returns list", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/expenses", nil)
@@ -243,10 +214,17 @@ func TestAPIHandler_Expenses(t *testing.T) {
 }
 
 func TestAPIHandler_Groups(t *testing.T) {
-	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
-	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
-	handler := NewAPIHandler(eService, uService, gService)
+	expenseRepo := &mocks.MockExpenseRepo{}
+	userRepo := &mocks.MockUserRepo{}
+	groupRepo := &mocks.MockGroupRepo{ListForUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Group, error) {
+		return []*domain.Group{
+			{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}},
+		}, nil
+	}}
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	userService := application.NewUserService(userRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo)
+	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	t.Run("POST /groups creates a group", func(t *testing.T) {
 		body, _ := json.Marshal(application.CreateGroupCommand{Name: "Ski Trip 2026", Creator: "Alice"})

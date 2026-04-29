@@ -6,54 +6,8 @@ import (
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/mocks"
 )
-
-// Expense
-type mockExpenseRepo struct {
-	saveFunc        func(ctx context.Context, expense *domain.Expense) error
-	listByGroupFunc func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error)
-}
-
-func (m *mockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
-	if m.saveFunc != nil {
-		return m.saveFunc(ctx, expense)
-	}
-	return nil
-}
-func (m *mockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
-	return nil, domain.ErrExpenseNotFound
-}
-func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
-	return []*domain.Expense{}, nil
-}
-func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
-	if m.listByGroupFunc != nil {
-		return m.listByGroupFunc(ctx, groupID)
-	}
-	return nil, nil
-}
-func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }
-func (m *mockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error     { return nil }
-
-// Group
-type mockGroupRepo struct {
-	getByIDFunc func(id domain.GroupID) (*domain.Group, error)
-}
-
-func (m *mockGroupRepo) Save(ctx context.Context, g *domain.Group) error { return nil }
-func (m *mockGroupRepo) ListForUser(ctx context.Context, u domain.UserID) ([]*domain.Group, error) {
-	return []*domain.Group{}, nil
-}
-func (m *mockGroupRepo) GetByID(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
-	return m.getByIDFunc(id)
-}
-func (m *mockGroupRepo) UpdateName(ctx context.Context, id domain.GroupID, name string) error {
-	return nil
-}
-func (m *mockGroupRepo) Delete(ctx context.Context, id domain.GroupID) error { return nil }
-func (m *mockGroupRepo) RemoveMember(ctx context.Context, id domain.GroupID, userID domain.UserID) error {
-	return nil
-}
 
 func TestExpenseService_AddExpense(t *testing.T) {
 	tests := []struct {
@@ -106,8 +60,8 @@ func TestExpenseService_AddExpense(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			expenseRepo := &mockExpenseRepo{saveFunc: tt.mockSave}
-			groupRepo := &mockGroupRepo{}
+			expenseRepo := &mocks.MockExpenseRepo{SaveFunc: tt.mockSave}
+			groupRepo := &mocks.MockGroupRepo{}
 			service := NewExpenseService(expenseRepo, groupRepo)
 
 			err := service.AddExpense(context.Background(), tt.cmd)
@@ -120,9 +74,9 @@ func TestExpenseService_AddExpense(t *testing.T) {
 
 func TestExpenseService_AddExpense_WithGroups(t *testing.T) {
 	t.Run("Fails if payer is not in group", func(t *testing.T) {
-		eRepo := &mockExpenseRepo{}
-		gRepo := &mockGroupRepo{
-			getByIDFunc: func(id domain.GroupID) (*domain.Group, error) {
+		eRepo := &mocks.MockExpenseRepo{}
+		gRepo := &mocks.MockGroupRepo{
+			GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
 				return &domain.Group{ID: id, Name: "Ski Trip", Members: []domain.UserID{"Bob"}}, nil
 			},
 		}

@@ -18,6 +18,74 @@ func NewExpenseRepository(db *sql.DB) *ExpenseRepository {
 	return &ExpenseRepository{db: db}
 }
 
+func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
+	type rawExpense struct {
+		id          string
+		groupID     sql.NullString
+		description string
+		totalCents  int64
+		payer       string
+		splits      []domain.Split
+	}
+	expenseMap := make(map[string]*rawExpense)
+	var orderedIDs []string
+
+	for rows.Next() {
+		var expID, desc, payer, splitUser string
+		var exGroupID sql.NullString
+		var totalCents, splitCents int64
+
+		if err := rows.Scan(&expID, &exGroupID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if _, exists := expenseMap[expID]; !exists {
+			expenseMap[expID] = &rawExpense{
+				id:          expID,
+				groupID:     exGroupID,
+				description: desc,
+				totalCents:  totalCents,
+				payer:       payer,
+			}
+			orderedIDs = append(orderedIDs, expID)
+		}
+
+		splitAmt, _ := money.New(splitCents)
+		expenseMap[expID].splits = append(expenseMap[expID].splits, domain.Split{
+			User:   domain.UserID(splitUser),
+			Amount: splitAmt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	var results []*domain.Expense
+	for _, id := range orderedIDs {
+		raw := expenseMap[id]
+		totalMoney, _ := money.New(raw.totalCents)
+		var groupIDPtr *domain.GroupID
+		if raw.groupID.Valid {
+			gID := domain.GroupID(raw.groupID.String)
+			groupIDPtr = &gID
+		}
+		exp, err := domain.NewExpense(
+			domain.ExpenseID(raw.id),
+			groupIDPtr,
+			raw.description,
+			totalMoney,
+			domain.UserID(raw.payer),
+			raw.splits,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("corrupted data in db for expense %s: %w", id, err)
+		}
+		results = append(results, exp)
+	}
+
+	return results, nil
+}
+
 func (r *ExpenseRepository) Save(ctx context.Context, expense *domain.Expense) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -121,72 +189,7 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 		return nil, fmt.Errorf("failed to list expenses: %w", err)
 	}
 	defer rows.Close()
-
-	type rawExpense struct {
-		id          string
-		groupID     sql.NullString
-		description string
-		totalCents  int64
-		payer       string
-		splits      []domain.Split
-	}
-	expenseMap := make(map[string]*rawExpense)
-	var orderedIDs []string
-
-	for rows.Next() {
-		var expID, desc, payer, splitUser string
-		var exGroupID sql.NullString
-		var totalCents, splitCents int64
-
-		if err := rows.Scan(&expID, &exGroupID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if _, exists := expenseMap[expID]; !exists {
-			expenseMap[expID] = &rawExpense{
-				id:          expID,
-				groupID:     exGroupID,
-				description: desc,
-				totalCents:  totalCents,
-				payer:       payer,
-			}
-			orderedIDs = append(orderedIDs, expID)
-		}
-
-		splitAmt, _ := money.New(splitCents)
-		expenseMap[expID].splits = append(expenseMap[expID].splits, domain.Split{
-			User:   domain.UserID(splitUser),
-			Amount: splitAmt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	var results []*domain.Expense
-	for _, id := range orderedIDs {
-		raw := expenseMap[id]
-		totalMoney, _ := money.New(raw.totalCents)
-		var groupIDPtr *domain.GroupID
-		if raw.groupID.Valid {
-			gID := domain.GroupID(raw.groupID.String)
-			groupIDPtr = &gID
-		}
-		exp, err := domain.NewExpense(
-			domain.ExpenseID(raw.id),
-			groupIDPtr,
-			raw.description,
-			totalMoney,
-			domain.UserID(raw.payer),
-			raw.splits,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("corrupted data in db for expense %s: %w", id, err)
-		}
-		results = append(results, exp)
-	}
-
-	return results, nil
+	return mapRowsToExpenses(rows)
 }
 
 func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
@@ -202,74 +205,7 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 		return nil, fmt.Errorf("failed to list group expenses: %w", err)
 	}
 	defer rows.Close()
-
-	type rawExpense struct {
-		id          string
-		groupID     sql.NullString
-		description string
-		totalCents  int64
-		payer       string
-		splits      []domain.Split
-	}
-	expenseMap := make(map[string]*rawExpense)
-	var orderedIDs []string
-
-	for rows.Next() {
-		var expID, desc, payer, splitUser string
-		var totalCents, splitCents int64
-		var dbGroupID sql.NullString
-
-		if err := rows.Scan(&expID, &dbGroupID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if _, exists := expenseMap[expID]; !exists {
-			expenseMap[expID] = &rawExpense{
-				id:          expID,
-				groupID:     dbGroupID,
-				description: desc,
-				totalCents:  totalCents,
-				payer:       payer,
-			}
-			orderedIDs = append(orderedIDs, expID)
-		}
-
-		splitAmt, _ := money.New(splitCents)
-		expenseMap[expID].splits = append(expenseMap[expID].splits, domain.Split{
-			User:   domain.UserID(splitUser),
-			Amount: splitAmt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	var results []*domain.Expense
-	for _, id := range orderedIDs {
-		raw := expenseMap[id]
-
-		var groupIDPtr *domain.GroupID
-		if raw.groupID.Valid {
-			gID := domain.GroupID(raw.groupID.String)
-			groupIDPtr = &gID
-		}
-
-		totalMoney, _ := money.New(raw.totalCents)
-		exp, err := domain.NewExpense(
-			domain.ExpenseID(raw.id),
-			groupIDPtr,
-			raw.description,
-			totalMoney,
-			domain.UserID(raw.payer),
-			raw.splits,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("corrupted data in db for expense %s: %w", id, err)
-		}
-		results = append(results, exp)
-	}
-
-	return results, nil
+	return mapRowsToExpenses(rows)
 }
 
 // completely remove an expense and its associated splits

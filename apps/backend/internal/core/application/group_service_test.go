@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
+	"opensplit/apps/backend/internal/core/mocks"
 	"opensplit/libs/shared/money"
 )
 
 func TestGroupService_CRUD(t *testing.T) {
-	gRepo := &mockGroupRepo{}
-	eRepo := &mockExpenseRepo{}
+	gRepo := &mocks.MockGroupRepo{}
+	eRepo := &mocks.MockExpenseRepo{}
 	service := NewGroupService(gRepo, eRepo)
 
 	t.Run("UpdateGroup fails on empty name", func(t *testing.T) {
@@ -30,12 +31,12 @@ func TestGroupService_CRUD(t *testing.T) {
 }
 
 func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
-	gRepo := &mockGroupRepo{}
+	gRepo := &mocks.MockGroupRepo{}
 
 	t.Run("Fails if user has an outstanding balance", func(t *testing.T) {
 		// Mock an expense where UserA paid $30, split equally with UserB
-		eRepo := &mockExpenseRepo{
-			listByGroupFunc: func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+		eRepo := &mocks.MockExpenseRepo{
+			ListByGroupFunc: func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
 				total, _ := money.New(3000)
 				split, _ := money.New(1500)
 				exp, _ := domain.NewExpense(
@@ -60,7 +61,7 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 
 	t.Run("Succeeds if user balance is exactly zero", func(t *testing.T) {
 		// Mock an empty ledger (no expenses = $0.00 balance)
-		eRepo := &mockExpenseRepo{}
+		eRepo := &mocks.MockExpenseRepo{}
 		service := NewGroupService(gRepo, eRepo)
 
 		err := service.RemoveMember(context.Background(), "g1", "UserC")
