@@ -47,6 +47,8 @@ func (m *mockUserRepo) Save(ctx context.Context, u domain.User) error { return n
 func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
 	return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 }
+func (m *mockUserRepo) Update(ctx context.Context, u domain.UserID, d string) error { return nil }
+func (m *mockUserRepo) SoftDelete(ctx context.Context, u domain.UserID) error       { return nil }
 
 // Group
 type mockGroupRepo struct{}
@@ -64,6 +66,13 @@ func (m *mockGroupRepo) GetByID(ctx context.Context, id domain.GroupID) (*domain
 		Members: []domain.UserID{"Alice"},
 	}, nil
 }
+func (m *mockGroupRepo) UpdateName(ctx context.Context, id domain.GroupID, n string) error {
+	return nil
+}
+func (m *mockGroupRepo) Delete(ctx context.Context, id domain.GroupID) error { return nil }
+func (m *mockGroupRepo) RemoveMember(ctx context.Context, id domain.GroupID, u domain.UserID) error {
+	return nil
+}
 
 func TestAPIHandler_GetBalances(t *testing.T) {
 	expenseRepo := &mockExpenseRepo{}
@@ -71,7 +80,7 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 	groupRepo := &mockGroupRepo{}
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
 	userService := application.NewUserService(userRepo)
-	groupService := application.NewGroupService(groupRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	req, err := http.NewRequest("GET", "/balances", nil)
@@ -95,7 +104,7 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 func TestAPIHandler_Users(t *testing.T) {
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{})
+	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("POST /users creates a user", func(t *testing.T) {
@@ -123,12 +132,35 @@ func TestAPIHandler_Users(t *testing.T) {
 			t.Errorf("expected body to contain Alice, got %s", rr.Body.String())
 		}
 	})
+
+	t.Run("PUT /users/{id} updates display name", func(t *testing.T) {
+		body := []byte(`{"display_name": "Alice Updated"}`)
+		req := httptest.NewRequest("PUT", "/users/Alice", bytes.NewBuffer(body))
+		req.SetPathValue("id", "Alice")
+		rr := httptest.NewRecorder()
+
+		handler.UpdateUser(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("DELETE /users/{id} soft deletes", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "/users/Alice", nil)
+		req.SetPathValue("id", "Alice")
+		rr := httptest.NewRecorder()
+
+		handler.DeleteUser(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
 }
 
 func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{})
+	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("GET /balances filters by group_id", func(t *testing.T) {
@@ -146,7 +178,7 @@ func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 func TestAPIHandler_Expenses(t *testing.T) {
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{})
+	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("GET /expenses returns list", func(t *testing.T) {
@@ -213,7 +245,7 @@ func TestAPIHandler_Expenses(t *testing.T) {
 func TestAPIHandler_Groups(t *testing.T) {
 	eService := application.NewExpenseService(&mockExpenseRepo{}, &mockGroupRepo{})
 	uService := application.NewUserService(&mockUserRepo{})
-	gService := application.NewGroupService(&mockGroupRepo{})
+	gService := application.NewGroupService(&mockGroupRepo{}, &mockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("POST /groups creates a group", func(t *testing.T) {
@@ -254,6 +286,41 @@ func TestAPIHandler_Groups(t *testing.T) {
 		}
 		if !bytes.Contains(rr.Body.Bytes(), []byte("Ski Trip 2026")) {
 			t.Errorf("expected body to contain 'Ski Trip 2026', got %s", rr.Body.String())
+		}
+	})
+
+	t.Run("PUT /groups/{id} updates group name", func(t *testing.T) {
+		body := []byte(`{"name": "New Trip Name"}`)
+		req := httptest.NewRequest("PUT", "/groups/g1", bytes.NewBuffer(body))
+		req.SetPathValue("id", "g1")
+		rr := httptest.NewRecorder()
+
+		handler.UpdateGroup(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("DELETE /groups/{id} deletes group", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "/groups/g1", nil)
+		req.SetPathValue("id", "g1")
+		rr := httptest.NewRecorder()
+
+		handler.DeleteGroup(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("DELETE /groups/{id}/members/{user_id} triggers validation", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "/groups/g1/members/Bob", nil)
+		req.SetPathValue("id", "g1")
+		req.SetPathValue("user_id", "Bob")
+		rr := httptest.NewRecorder()
+
+		handler.RemoveGroupMember(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
 		}
 	})
 }

@@ -137,3 +137,40 @@ func (r *GroupRepository) ListForUser(ctx context.Context, userID domain.UserID)
 
 	return groups, nil
 }
+
+func (r *GroupRepository) UpdateName(ctx context.Context, id domain.GroupID, newName string) error {
+	res, err := r.db.ExecContext(ctx, "UPDATE groups SET name = $1 WHERE id = $2", newName, string(id))
+	if err != nil {
+		return fmt.Errorf("failed to update group: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrGroupNotFound
+	}
+	return nil
+}
+
+func (r *GroupRepository) Delete(ctx context.Context, id domain.GroupID) error {
+	// ON DELETE CASCADE on our tables will automatically wipe group_members and group expenses
+	res, err := r.db.ExecContext(ctx, "DELETE FROM groups WHERE id = $1", string(id))
+	if err != nil {
+		return fmt.Errorf("failed to delete group: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrGroupNotFound
+	}
+	return nil
+}
+
+func (r *GroupRepository) RemoveMember(ctx context.Context, groupID domain.GroupID, userID domain.UserID) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", string(groupID), string(userID))
+	if err != nil {
+		return fmt.Errorf("failed to remove member: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrUserNotInGroup
+	}
+	return nil
+}

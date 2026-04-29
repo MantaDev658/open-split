@@ -9,8 +9,10 @@ import (
 )
 
 type mockUserRepo struct {
-	saveFunc    func(ctx context.Context, u domain.User) error
-	listAllFunc func(ctx context.Context) ([]domain.User, error)
+	saveFunc       func(ctx context.Context, u domain.User) error
+	listAllFunc    func(ctx context.Context) ([]domain.User, error)
+	updateFunc     func(ctx context.Context, u domain.UserID, d string) error
+	softDeleteFunc func(ctx context.Context, u domain.UserID) error
 }
 
 func (m *mockUserRepo) Save(ctx context.Context, u domain.User) error {
@@ -25,6 +27,20 @@ func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
 		return m.listAllFunc(ctx)
 	}
 	return nil, nil
+}
+
+func (m *mockUserRepo) Update(ctx context.Context, u domain.UserID, d string) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(ctx, u, d)
+	}
+	return nil
+}
+
+func (m *mockUserRepo) SoftDelete(ctx context.Context, u domain.UserID) error {
+	if m.softDeleteFunc != nil {
+		return m.softDeleteFunc(ctx, u)
+	}
+	return nil
 }
 
 func TestUserService_CreateUser(t *testing.T) {
@@ -81,5 +97,34 @@ func TestUserService_ListUsers(t *testing.T) {
 	}
 	if len(users) != 1 || users[0].ID != "Alice" {
 		t.Errorf("unexpected user list returned")
+	}
+}
+
+func TestUserService_UpdateUser(t *testing.T) {
+	repo := &mockUserRepo{}
+	service := NewUserService(repo)
+
+	t.Run("Fails with empty name", func(t *testing.T) {
+		err := service.UpdateUser(context.Background(), "Alice", "")
+		if err == nil {
+			t.Error("expected error for empty display name")
+		}
+	})
+
+	t.Run("Succeeds with valid name", func(t *testing.T) {
+		err := service.UpdateUser(context.Background(), "Alice", "Alice S.")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestUserService_DeleteUser(t *testing.T) {
+	repo := &mockUserRepo{}
+	service := NewUserService(repo)
+
+	err := service.DeleteUser(context.Background(), "Alice")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

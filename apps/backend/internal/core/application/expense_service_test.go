@@ -10,7 +10,8 @@ import (
 
 // Expense
 type mockExpenseRepo struct {
-	saveFunc func(ctx context.Context, expense *domain.Expense) error
+	saveFunc        func(ctx context.Context, expense *domain.Expense) error
+	listByGroupFunc func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error)
 }
 
 func (m *mockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
@@ -26,7 +27,10 @@ func (m *mockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error
 	return []*domain.Expense{}, nil
 }
 func (m *mockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
-	return []*domain.Expense{}, nil
+	if m.listByGroupFunc != nil {
+		return m.listByGroupFunc(ctx, groupID)
+	}
+	return nil, nil
 }
 func (m *mockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error { return nil }
 func (m *mockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error     { return nil }
@@ -42,6 +46,13 @@ func (m *mockGroupRepo) ListForUser(ctx context.Context, u domain.UserID) ([]*do
 }
 func (m *mockGroupRepo) GetByID(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
 	return m.getByIDFunc(id)
+}
+func (m *mockGroupRepo) UpdateName(ctx context.Context, id domain.GroupID, name string) error {
+	return nil
+}
+func (m *mockGroupRepo) Delete(ctx context.Context, id domain.GroupID) error { return nil }
+func (m *mockGroupRepo) RemoveMember(ctx context.Context, id domain.GroupID, userID domain.UserID) error {
+	return nil
 }
 
 func TestExpenseService_AddExpense(t *testing.T) {

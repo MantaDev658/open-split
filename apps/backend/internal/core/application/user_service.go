@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -35,4 +36,15 @@ func (s *UserService) CreateUser(ctx context.Context, cmd CreateUserCommand) err
 
 func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return s.repo.ListAll(ctx)
+}
+
+func (s *UserService) UpdateUser(ctx context.Context, id string, displayName string) error {
+	if displayName == "" {
+		return errors.New("display name cannot be empty")
+	}
+	return s.repo.Update(ctx, domain.UserID(id), displayName)
+}
+
+func (s *UserService) DeleteUser(ctx context.Context, id string) error {
+	return s.repo.SoftDelete(ctx, domain.UserID(id))
 }

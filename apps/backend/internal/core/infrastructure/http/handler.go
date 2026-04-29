@@ -179,6 +179,35 @@ func (h *APIHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PUT /users/{id}
+func (h *APIHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	var cmd struct {
+		DisplayName string `json:"display_name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.userService.UpdateUser(r.Context(), userID, cmd.DisplayName); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// DELETE /users/{id}
+func (h *APIHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	if err := h.userService.DeleteUser(r.Context(), userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // POST /groups
 func (h *APIHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var cmd application.CreateGroupCommand
@@ -239,4 +268,45 @@ func (h *APIHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(groups)
+}
+
+// PUT /groups/{id}
+func (h *APIHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("id")
+	var cmd struct {
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.groupService.UpdateGroup(r.Context(), groupID, cmd.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// DELETE /groups/{id}
+func (h *APIHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("id")
+	if err := h.groupService.DeleteGroup(r.Context(), groupID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// DELETE /groups/{id}/members/{user_id}
+func (h *APIHandler) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("id")
+	userID := r.PathValue("user_id")
+
+	if err := h.groupService.RemoveMember(r.Context(), groupID, userID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

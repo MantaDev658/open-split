@@ -33,7 +33,7 @@ func main() {
 	expenseRepo := postgres.NewExpenseRepository(db)
 
 	userService := application.NewUserService(userRepo)
-	groupService := application.NewGroupService(groupRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
 
 	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
@@ -50,11 +50,16 @@ func main() {
 	// User
 	mux.HandleFunc("POST /users", handler.CreateUser)
 	mux.HandleFunc("GET /users", handler.ListUsers)
+	mux.HandleFunc("PUT /users/{id}", handler.UpdateUser)
+	mux.HandleFunc("DELETE /users/{id}", handler.DeleteUser)
 
 	// Group
 	mux.HandleFunc("POST /groups", handler.CreateGroup)
 	mux.HandleFunc("POST /groups/{id}/members", handler.AddGroupMember)
 	mux.HandleFunc("GET /groups", handler.ListGroups)
+	mux.HandleFunc("PUT /groups/{id}", handler.UpdateGroup)
+	mux.HandleFunc("DELETE /groups/{id}", handler.DeleteGroup)
+	mux.HandleFunc("DELETE /groups/{id}/members/{user_id}", handler.RemoveGroupMember)
 
 	port := ":8080"
 	fmt.Printf("🚀 Open Split API running on http://localhost%s\n", port)

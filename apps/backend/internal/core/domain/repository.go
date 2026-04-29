@@ -18,12 +18,17 @@ type User struct {
 type UserRepository interface {
 	Save(ctx context.Context, user User) error
 	ListAll(ctx context.Context) ([]User, error)
+	Update(ctx context.Context, userID UserID, displayName string) error
+	SoftDelete(ctx context.Context, userId UserID) error
 }
 
 type GroupRepository interface {
 	Save(ctx context.Context, group *Group) error
 	GetByID(ctx context.Context, id GroupID) (*Group, error)
 	ListForUser(ctx context.Context, userID UserID) ([]*Group, error)
+	UpdateName(ctx context.Context, id GroupID, name string) error
+	Delete(ctx context.Context, id GroupID) error
+	RemoveMember(ctx context.Context, id GroupID, userID UserID) error
 }
 
 type ExpenseRepository interface {
