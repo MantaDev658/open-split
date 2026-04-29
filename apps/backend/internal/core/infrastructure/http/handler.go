@@ -24,11 +24,19 @@ func NewAPIHandler(es *application.ExpenseService, us *application.UserService, 
 	}
 }
 
+func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
+	var body T
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		return body, err
+	}
+	return body, nil
+}
+
 // POST /expenses
 func (h *APIHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
-	var cmd application.CreateExpenseCommand
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON payload"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[application.CreateExpenseCommand](w, r)
+	if err != nil {
 		return
 	}
 
@@ -117,9 +125,8 @@ func (h *APIHandler) GetBalances(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	expenseID := r.PathValue("id")
 
-	var cmd application.UpdateExpenseCommand
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[application.UpdateExpenseCommand](w, r)
+	if err != nil {
 		return
 	}
 
@@ -150,9 +157,8 @@ func (h *APIHandler) DeleteExpense(w http.ResponseWriter, r *http.Request) {
 
 // POST /users
 func (h *APIHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var cmd application.CreateUserCommand
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON payload"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[application.CreateUserCommand](w, r)
+	if err != nil {
 		return
 	}
 
@@ -182,12 +188,11 @@ func (h *APIHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 // PUT /users/{id}
 func (h *APIHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("id")
-	var cmd struct {
-		DisplayName string `json:"display_name"`
-	}
 
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[struct {
+		DisplayName string `json:"display_name"`
+	}](w, r)
+	if err != nil {
 		return
 	}
 
@@ -210,9 +215,8 @@ func (h *APIHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // POST /groups
 func (h *APIHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
-	var cmd application.CreateGroupCommand
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[application.CreateGroupCommand](w, r)
+	if err != nil {
 		return
 	}
 
@@ -231,11 +235,10 @@ func (h *APIHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 	groupID := r.PathValue("id")
 
-	var cmd struct {
+	cmd, err := decodeJSON[struct {
 		UserID string `json:"user_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+	}](w, r)
+	if err != nil {
 		return
 	}
 
@@ -273,12 +276,11 @@ func (h *APIHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 // PUT /groups/{id}
 func (h *APIHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	groupID := r.PathValue("id")
-	var cmd struct {
-		Name string `json:"name"`
-	}
 
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+	cmd, err := decodeJSON[struct {
+		Name string `json:"name"`
+	}](w, r)
+	if err != nil {
 		return
 	}
 

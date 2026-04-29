@@ -40,50 +40,44 @@ type UpdateExpenseCommand struct {
 	Splits      map[string]int64 `json:"splits"`
 }
 
-func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseCommand) error {
-	totalMoney, err := money.New(cmd.TotalCents)
+func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string, groupID string, desc string, totalCents int64, payer string, splitMap map[string]int64) (*domain.Expense, error) {
+	totalMoney, err := money.New(totalCents)
 	if err != nil {
-		return fmt.Errorf("invalid total amount: %w", err)
+		return nil, fmt.Errorf("invalid total amount: %w", err)
 	}
 
 	var splits []domain.Split
-	for user, cents := range cmd.Splits {
+	for user, cents := range splitMap {
 		splitMoney, _ := money.New(cents)
-		splits = append(splits, domain.Split{
-			User:   domain.UserID(user),
-			Amount: splitMoney,
-		})
+		splits = append(splits, domain.Split{User: domain.UserID(user), Amount: splitMoney})
 	}
-	var groupIDPtr *domain.GroupID
 
-	if cmd.GroupID != "" {
-		gID := domain.GroupID(cmd.GroupID)
+	var groupIDPtr *domain.GroupID
+	if groupID != "" {
+		gID := domain.GroupID(groupID)
 		groupIDPtr = &gID
 
 		group, groupErr := s.groupRepo.GetByID(ctx, gID)
 		if groupErr != nil {
-			return fmt.Errorf("failed to validate group: %w", groupErr)
+			return nil, fmt.Errorf("failed to validate group: %w", groupErr)
 		}
 
-		if !group.HasMember(domain.UserID(cmd.Payer)) {
-			return fmt.Errorf("payer %s is not a member of group %s", cmd.Payer, group.Name)
+		if !group.HasMember(domain.UserID(payer)) {
+			return nil, fmt.Errorf("payer %s is not a member of group %s", payer, groupID)
 		}
 
 		for _, split := range splits {
 			if !group.HasMember(split.User) {
-				return fmt.Errorf("split participant %s is not a member of group %s", split.User, group.Name)
+				return nil, fmt.Errorf("split participant %s is not a member of group %s", split.User, group.Name)
 			}
 		}
 	}
 
-	expense, err := domain.NewExpense(
-		domain.ExpenseID(uuid.NewString()),
-		groupIDPtr,
-		cmd.Description,
-		totalMoney,
-		domain.UserID(cmd.Payer),
-		splits,
-	)
+	return domain.NewExpense(domain.ExpenseID(id), groupIDPtr, desc, totalMoney, domain.UserID(payer), splits)
+}
+
+func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseCommand) error {
+	expense, err := s.buildAndValidateExpense(ctx, uuid.NewString(), cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.Splits)
 	if err != nil {
 		return fmt.Errorf("business rule violation: %w", err)
 	}
@@ -122,47 +116,7 @@ func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string
 }
 
 func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
-	totalMoney, err := money.New(cmd.TotalCents)
-	if err != nil {
-		return fmt.Errorf("invalid total amount: %w", err)
-	}
-
-	var splits []domain.Split
-	for user, cents := range cmd.Splits {
-		splitMoney, _ := money.New(cents)
-		splits = append(splits, domain.Split{
-			User:   domain.UserID(user),
-			Amount: splitMoney,
-		})
-	}
-
-	var groupIDPtr *domain.GroupID
-	if cmd.GroupID != "" {
-		gID := domain.GroupID(cmd.GroupID)
-		groupIDPtr = &gID
-
-		group, groupErr := s.groupRepo.GetByID(ctx, gID)
-		if groupErr != nil {
-			return fmt.Errorf("failed to validate group: %w", groupErr)
-		}
-		if !group.HasMember(domain.UserID(cmd.Payer)) {
-			return fmt.Errorf("payer %s is not a member of group %s", cmd.Payer, group.Name)
-		}
-		for _, split := range splits {
-			if !group.HasMember(split.User) {
-				return fmt.Errorf("split participant %s is not a member of group %s", split.User, group.Name)
-			}
-		}
-	}
-
-	expense, err := domain.NewExpense(
-		domain.ExpenseID(cmd.ID),
-		groupIDPtr,
-		cmd.Description,
-		totalMoney,
-		domain.UserID(cmd.Payer),
-		splits,
-	)
+	expense, err := s.buildAndValidateExpense(ctx, cmd.ID, cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.Splits)
 	if err != nil {
 		return fmt.Errorf("business rule violation: %w", err)
 	}
