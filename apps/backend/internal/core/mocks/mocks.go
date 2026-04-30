@@ -7,12 +7,13 @@ import (
 
 // Expense
 type MockExpenseRepo struct {
-	SaveFunc        func(ctx context.Context, expense *domain.Expense) error
-	GetByIDFunc     func(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error)
-	ListAllFunc     func(ctx context.Context) ([]*domain.Expense, error)
-	ListByGroupFunc func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error)
-	UpdateFunc      func(ctx context.Context, expense *domain.Expense) error
-	DeleteFunc      func(ctx context.Context, id domain.ExpenseID) error
+	SaveFunc                       func(ctx context.Context, expense *domain.Expense) error
+	GetByIDFunc                    func(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error)
+	ListAllFunc                    func(ctx context.Context) ([]*domain.Expense, error)
+	ListByGroupFunc                func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error)
+	ListNonGroupExpensesByUserFunc func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error)
+	UpdateFunc                     func(ctx context.Context, expense *domain.Expense) error
+	DeleteFunc                     func(ctx context.Context, id domain.ExpenseID) error
 }
 
 func (m *MockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
@@ -41,6 +42,13 @@ func (m *MockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupI
 		return m.ListByGroupFunc(ctx, groupID)
 	}
 	return nil, nil
+}
+
+func (m *MockExpenseRepo) ListNonGroupExpensesByUser(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
+	if m.ListNonGroupExpensesByUserFunc != nil {
+		return m.ListNonGroupExpensesByUserFunc(ctx, userID)
+	}
+	return []*domain.Expense{}, nil
 }
 
 func (m *MockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error {

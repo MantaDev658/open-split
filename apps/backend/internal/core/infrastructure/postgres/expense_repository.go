@@ -208,6 +208,26 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 	return mapRowsToExpenses(rows)
 }
 
+func (r *ExpenseRepository) ListNonGroupExpensesByUser(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
+	query := `
+		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
+		FROM expenses e
+		JOIN splits s ON e.id = s.expense_id
+		WHERE e.group_id IS NULL 
+		  AND (e.payer_id = $1 OR EXISTS (
+			  SELECT 1 FROM splits s2 WHERE s2.expense_id = e.id AND s2.user_id = $1
+		  ))
+		ORDER BY e.created_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, string(userID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list friendship expenses: %w", err)
+	}
+	defer rows.Close()
+
+	return mapRowsToExpenses(rows)
+}
+
 // completely remove an expense and its associated splits
 func (r *ExpenseRepository) Delete(ctx context.Context, id domain.ExpenseID) error {
 	tx, err := r.db.BeginTx(ctx, nil)

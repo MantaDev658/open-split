@@ -254,6 +254,42 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 	})
 }
 
+func TestAPIHandler_GetFriendBalances(t *testing.T) {
+	eRepo := &mocks.MockExpenseRepo{
+		ListNonGroupExpensesByUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
+			total, _ := money.New(2000)
+			split, _ := money.New(1000)
+			exp, _ := domain.NewExpense("exp-1", nil, "Drinks", total, "Alice", []domain.Split{
+				{User: "Alice", Amount: split}, {User: "Charlie", Amount: split},
+			})
+			return []*domain.Expense{exp}, nil
+		},
+	}
+
+	handler := NewAPIHandler(
+		application.NewExpenseService(eRepo, &mocks.MockGroupRepo{}),
+		application.NewUserService(&mocks.MockUserRepo{}),
+		application.NewGroupService(&mocks.MockGroupRepo{}, eRepo),
+	)
+
+	t.Run("GET /friends/{user_id}/balances succeeds", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/friends/Alice/balances", nil)
+		req.SetPathValue("user_id", "Alice")
+		rr := httptest.NewRecorder()
+
+		handler.GetFriendBalances(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 OK, got %d", rr.Code)
+		}
+
+		expectedBody := `"From":"Charlie","To":"Alice","Amount":1000`
+		if !bytes.Contains(rr.Body.Bytes(), []byte(expectedBody)) {
+			t.Errorf("expected body to contain settlement, got: %s", rr.Body.String())
+		}
+	})
+}
+
 func TestAPIHandler_Groups(t *testing.T) {
 	expenseRepo := &mocks.MockExpenseRepo{}
 	userRepo := &mocks.MockUserRepo{}

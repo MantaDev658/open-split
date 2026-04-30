@@ -7,6 +7,7 @@ import (
 
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/apps/backend/internal/core/mocks"
+	"opensplit/libs/shared/money"
 )
 
 func TestExpenseService_AddExpense(t *testing.T) {
@@ -135,6 +136,37 @@ func TestExpenseService_SettleUp(t *testing.T) {
 		}
 		if err := service.SettleUp(context.Background(), cmd); err != nil {
 			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestExpenseService_GetFriendBalances(t *testing.T) {
+	eRepo := &mocks.MockExpenseRepo{
+		ListNonGroupExpensesByUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
+			total, _ := money.New(3000)
+			split, _ := money.New(1500)
+			// Alice paid $30 for Alice and Bob
+			exp, _ := domain.NewExpense("exp-1", nil, "Dinner", total, "Alice", []domain.Split{
+				{User: "Alice", Amount: split}, {User: "Bob", Amount: split},
+			})
+			return []*domain.Expense{exp}, nil
+		},
+	}
+	service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
+
+	t.Run("Returns accurate settlements for user", func(t *testing.T) {
+		settlements, err := service.GetFriendBalances(context.Background(), "Alice")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(settlements) != 1 {
+			t.Fatalf("expected 1 settlement, got %d", len(settlements))
+		}
+
+		// Bob should owe Alice $15
+		if string(settlements[0].From) != "Bob" || string(settlements[0].To) != "Alice" || settlements[0].Amount != 1500 {
+			t.Errorf("incorrect settlement math: %+v", settlements[0])
 		}
 	})
 }

@@ -121,6 +121,22 @@ func (h *APIHandler) GetBalances(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GET /friends/{user_id}/balances
+func (h *APIHandler) GetFriendBalances(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("user_id")
+
+	debts, err := h.expenseService.GetFriendBalances(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(debts); err != nil {
+		return
+	}
+}
+
 // PUT /expenses/{id}
 func (h *APIHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	expenseID := r.PathValue("id")

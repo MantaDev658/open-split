@@ -36,6 +36,7 @@ type ExpenseRepository interface {
 	GetByID(ctx context.Context, id ExpenseID) (*Expense, error)
 	ListAll(ctx context.Context) ([]*Expense, error)
 	ListByGroup(ctx context.Context, groupID GroupID) ([]*Expense, error)
+	ListNonGroupExpensesByUser(ctx context.Context, userID UserID) ([]*Expense, error)
 	Update(ctx context.Context, expense *Expense) error
 	Delete(ctx context.Context, id ExpenseID) error
 }

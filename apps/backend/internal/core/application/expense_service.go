@@ -123,6 +123,32 @@ func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string
 	return expenses, nil
 }
 
+func (s *ExpenseService) GetFriendBalances(ctx context.Context, userID string) ([]domain.Transaction, error) {
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	expenses, err := s.expenseRepo.ListNonGroupExpensesByUser(dbCtx, domain.UserID(userID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch friend expenses: %w", err)
+	}
+
+	balances := domain.CalculateNetBalances(expenses)
+	suggestions := domain.SimplifyDebts(balances)
+
+	var userDebts []domain.Transaction
+	for _, debt := range suggestions {
+		if string(debt.From) == userID || string(debt.To) == userID {
+			userDebts = append(userDebts, debt)
+		}
+	}
+
+	if userDebts == nil {
+		return []domain.Transaction{}, nil
+	}
+
+	return userDebts, nil
+}
+
 func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
 	expense, err := s.buildAndValidateExpense(ctx, cmd.ID, cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.Splits)
 	if err != nil {
