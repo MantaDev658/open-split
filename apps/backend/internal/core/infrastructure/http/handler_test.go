@@ -239,7 +239,11 @@ func TestAPIHandler_Expenses(t *testing.T) {
 			Description: "Updated Dinner",
 			TotalCents:  4000,
 			Payer:       "Alice",
-			Splits:      map[string]int64{"Alice": 2000, "Bob": 2000},
+			SplitType:   "EQUAL",
+			Splits: []application.SplitDetail{
+				{UserID: "Alice", Value: 2000},
+				{UserID: "Bob", Value: 2000},
+			},
 		}
 		body, _ := json.Marshal(cmd)
 

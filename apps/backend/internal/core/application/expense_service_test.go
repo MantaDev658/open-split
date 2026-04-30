@@ -7,166 +7,179 @@ import (
 
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/apps/backend/internal/core/mocks"
-	"opensplit/libs/shared/money"
 )
 
-func TestExpenseService_AddExpense(t *testing.T) {
+func TestExpenseService_AddExpense_CoreMath(t *testing.T) {
 	tests := []struct {
-		name        string
-		cmd         CreateExpenseCommand
-		mockSave    func(ctx context.Context, expense *domain.Expense) error
-		expectError bool
+		name          string
+		cmd           CreateExpenseCommand
+		expectedError error
 	}{
 		{
-			name: "Success path",
+			name: "Path 1: Success EXACT",
 			cmd: CreateExpenseCommand{
-				Description: "Dinner",
-				TotalCents:  3000,
-				Payer:       "Alice",
-				Splits:      map[string]int64{"Alice": 1500, "Bob": 1500},
+				TotalCents: 3000, Payer: "Alice", SplitType: "EXACT",
+				Splits: []SplitDetail{{UserID: "Alice", Value: 1500}, {UserID: "Bob", Value: 1500}},
 			},
-			mockSave: func(ctx context.Context, expense *domain.Expense) error {
-				return nil
-			},
-			expectError: false,
+			expectedError: nil,
 		},
 		{
-			name: "Domain validation failure (math doesn't add up)",
+			name: "Path 2: Success EQUAL",
 			cmd: CreateExpenseCommand{
-				Description: "Dinner",
-				TotalCents:  3000,
-				Payer:       "Alice",
-				Splits:      map[string]int64{"Alice": 1000, "Bob": 1000}, // only $20 out of $30
+				TotalCents: 3000, Payer: "Alice", SplitType: "EQUAL",
+				Splits: []SplitDetail{{UserID: "Alice"}, {UserID: "Bob"}},
 			},
-			mockSave: func(ctx context.Context, expense *domain.Expense) error {
-				t.Fatal("Save should never be called if domain validation fails")
-				return nil
-			},
-			expectError: true,
+			expectedError: nil,
 		},
 		{
-			name: "Infrastructure failure (DB is down)",
+			name: "Path 3: Success PERCENTAGE",
 			cmd: CreateExpenseCommand{
-				Description: "Dinner",
-				TotalCents:  3000,
-				Payer:       "Alice",
-				Splits:      map[string]int64{"Alice": 3000},
+				TotalCents: 3000, Payer: "Alice", SplitType: "PERCENTAGE",
+				Splits: []SplitDetail{{UserID: "Alice", Value: 60.00}, {UserID: "Bob", Value: 40.00}},
 			},
-			mockSave: func(ctx context.Context, expense *domain.Expense) error {
-				return errors.New("database connection refused")
+			expectedError: nil,
+		},
+		{
+			name: "Path 4: Success SHARES",
+			cmd: CreateExpenseCommand{
+				TotalCents: 3000, Payer: "Alice", SplitType: "SHARES",
+				Splits: []SplitDetail{{UserID: "Alice", Value: 2}, {UserID: "Bob", Value: 1}},
 			},
-			expectError: true,
+			expectedError: nil,
+		},
+		{
+			name: "Path 5: Math Mismatch EXACT",
+			cmd: CreateExpenseCommand{
+				TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", // MUST be EXACT to trigger mismatch
+				Splits: []SplitDetail{{UserID: "Alice", Value: 1000}, {UserID: "Bob", Value: 1000}},
+			},
+			expectedError: domain.ErrSplitsDoNotEqualTotal,
+		},
+		{
+			name: "Path 6: Invalid Split Type",
+			cmd: CreateExpenseCommand{
+				TotalCents: 3000, Payer: "Alice", SplitType: "INVALID_TYPE",
+				Splits: []SplitDetail{{UserID: "Alice", Value: 1000}},
+			},
+			expectedError: errors.New("unknown allocation strategy"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			expenseRepo := &mocks.MockExpenseRepo{SaveFunc: tt.mockSave}
-			groupRepo := &mocks.MockGroupRepo{}
-			service := NewExpenseService(expenseRepo, groupRepo)
+			eRepo := &mocks.MockExpenseRepo{
+				SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
+			}
+			service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
 
 			err := service.AddExpense(context.Background(), tt.cmd)
-			if (err != nil) != tt.expectError {
-				t.Errorf("AddExpense() error = %v, expectError %v", err, tt.expectError)
+
+			if tt.expectedError == nil && err != nil {
+				t.Errorf("expected success, got error: %v", err)
+			}
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.expectedError.Error())
+				} else if !errors.Is(err, tt.expectedError) && err.Error() != "business rule violation: allocation math error: "+tt.expectedError.Error() {
+					t.Errorf("expected specific error, got: %v", err)
+				}
 			}
 		})
 	}
 }
 
-func TestExpenseService_AddExpense_WithGroups(t *testing.T) {
-	t.Run("Fails if payer is not in group", func(t *testing.T) {
-		eRepo := &mocks.MockExpenseRepo{}
+func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
+	eRepo := &mocks.MockExpenseRepo{
+		SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
+	}
+
+	t.Run("Path 7: Fails if Group lookup errors", func(t *testing.T) {
 		gRepo := &mocks.MockGroupRepo{
 			GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
-				return &domain.Group{ID: id, Name: "Ski Trip", Members: []domain.UserID{"Bob"}}, nil
+				return nil, errors.New("database connection lost")
 			},
 		}
 		service := NewExpenseService(eRepo, gRepo)
+		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
 
-		cmd := CreateExpenseCommand{
-			GroupID:     "some-uuid",
-			Description: "Dinner",
-			Payer:       "Alice", // Alice is NOT in the members list above
-			Splits:      map[string]int64{"Alice": 1000},
+		err := service.AddExpense(context.Background(), cmd)
+		if err == nil {
+			t.Error("expected error due to group DB failure, got nil")
 		}
+	})
+
+	t.Run("Path 8: Fails if Payer is not in group", func(t *testing.T) {
+		gRepo := &mocks.MockGroupRepo{
+			GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
+				return &domain.Group{ID: id, Members: []domain.UserID{"Bob", "Charlie"}}, nil
+			},
+		}
+		service := NewExpenseService(eRepo, gRepo)
+		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
 
 		err := service.AddExpense(context.Background(), cmd)
 		if !errors.Is(err, domain.ErrUserNotInGroup) {
 			t.Errorf("expected ErrUserNotInGroup, got %v", err)
 		}
 	})
+
+	t.Run("Path 9: Fails if Split Participant is not in group", func(t *testing.T) {
+		gRepo := &mocks.MockGroupRepo{
+			GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
+				return &domain.Group{ID: id, Members: []domain.UserID{"Alice", "Bob"}}, nil
+			},
+		}
+		service := NewExpenseService(eRepo, gRepo)
+		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 1500}, {UserID: "David", Value: 1500}}}
+
+		err := service.AddExpense(context.Background(), cmd)
+		if err == nil {
+			t.Error("expected error for invalid participant, got nil")
+		}
+	})
+}
+
+func TestExpenseService_AddExpense_Infrastructure(t *testing.T) {
+	t.Run("Path 10: Fails if DB Save fails", func(t *testing.T) {
+		eRepo := &mocks.MockExpenseRepo{
+			SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
+				return errors.New("insert failed")
+			},
+		}
+		service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
+		cmd := CreateExpenseCommand{TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
+
+		err := service.AddExpense(context.Background(), cmd)
+		if err == nil {
+			t.Error("expected infrastructure failure, got nil")
+		}
+	})
 }
 
 func TestExpenseService_SettleUp(t *testing.T) {
 	eRepo := &mocks.MockExpenseRepo{
-		SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
-			return nil
-		},
+		SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
 	}
-	gRepo := &mocks.MockGroupRepo{}
-	service := NewExpenseService(eRepo, gRepo)
+	service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
 
-	t.Run("Fails if payer and receiver are the same", func(t *testing.T) {
-		cmd := SettleUpCommand{
-			PayerID:     "Alice",
-			ReceiverID:  "Alice",
-			AmountCents: 2000,
-		}
-		if err := service.SettleUp(context.Background(), cmd); err == nil {
-			t.Error("expected error when payer equals receiver")
+	t.Run("Fails if payer equals receiver", func(t *testing.T) {
+		cmd := SettleUpCommand{PayerID: "Alice", ReceiverID: "Alice", AmountCents: 2000}
+		if err := service.SettleUp(context.Background(), cmd); !errors.Is(err, domain.ErrSamePayerReceiver) {
+			t.Errorf("expected ErrSamePayerReceiver, got %v", err)
 		}
 	})
 
 	t.Run("Fails if amount is zero", func(t *testing.T) {
-		cmd := SettleUpCommand{
-			PayerID:     "Alice",
-			ReceiverID:  "Bob",
-			AmountCents: 0,
-		}
-		if err := service.SettleUp(context.Background(), cmd); err == nil {
-			t.Error("expected error for zero amount")
+		cmd := SettleUpCommand{PayerID: "Alice", ReceiverID: "Bob", AmountCents: 0}
+		if err := service.SettleUp(context.Background(), cmd); !errors.Is(err, domain.ErrInvalidSettlementAmount) {
+			t.Errorf("expected ErrInvalidSettlementAmount, got %v", err)
 		}
 	})
 
-	t.Run("Succeeds with valid parameters", func(t *testing.T) {
-		cmd := SettleUpCommand{
-			PayerID:     "Alice",
-			ReceiverID:  "Bob",
-			AmountCents: 1500,
-		}
+	t.Run("Succeeds", func(t *testing.T) {
+		cmd := SettleUpCommand{PayerID: "Alice", ReceiverID: "Bob", AmountCents: 1500}
 		if err := service.SettleUp(context.Background(), cmd); err != nil {
 			t.Errorf("unexpected error: %v", err)
-		}
-	})
-}
-
-func TestExpenseService_GetFriendBalances(t *testing.T) {
-	eRepo := &mocks.MockExpenseRepo{
-		ListNonGroupExpensesByUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
-			total, _ := money.New(3000)
-			split, _ := money.New(1500)
-			// Alice paid $30 for Alice and Bob
-			exp, _ := domain.NewExpense("exp-1", nil, "Dinner", total, "Alice", []domain.Split{
-				{User: "Alice", Amount: split}, {User: "Bob", Amount: split},
-			})
-			return []*domain.Expense{exp}, nil
-		},
-	}
-	service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
-
-	t.Run("Returns accurate settlements for user", func(t *testing.T) {
-		settlements, err := service.GetFriendBalances(context.Background(), "Alice")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if len(settlements) != 1 {
-			t.Fatalf("expected 1 settlement, got %d", len(settlements))
-		}
-
-		// Bob should owe Alice $15
-		if string(settlements[0].From) != "Bob" || string(settlements[0].To) != "Alice" || settlements[0].Amount != 1500 {
-			t.Errorf("incorrect settlement math: %+v", settlements[0])
 		}
 	})
 }

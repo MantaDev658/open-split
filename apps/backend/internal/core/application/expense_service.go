@@ -23,21 +23,28 @@ func NewExpenseService(eRepo domain.ExpenseRepository, gRepo domain.GroupReposit
 	}
 }
 
+type SplitDetail struct {
+	UserID string  `json:"user_id"`
+	Value  float64 `json:"value"`
+}
+
 type CreateExpenseCommand struct {
-	GroupID     string           `json:"group_id,omitempty"`
-	Description string           `json:"description"`
-	TotalCents  int64            `json:"total_cents"`
-	Payer       string           `json:"payer"`
-	Splits      map[string]int64 `json:"splits"`
+	GroupID     string        `json:"group_id,omitempty"`
+	Description string        `json:"description"`
+	TotalCents  int64         `json:"total_cents"`
+	Payer       string        `json:"payer"`
+	SplitType   string        `json:"split_type"`
+	Splits      []SplitDetail `json:"splits"`
 }
 
 type UpdateExpenseCommand struct {
-	ID          string           `json:"id"`
-	GroupID     string           `json:"group_id,omitempty"`
-	Description string           `json:"description"`
-	TotalCents  int64            `json:"total_cents"`
-	Payer       string           `json:"payer"`
-	Splits      map[string]int64 `json:"splits"`
+	ID          string        `json:"id"`
+	GroupID     string        `json:"group_id,omitempty"`
+	Description string        `json:"description"`
+	TotalCents  int64         `json:"total_cents"`
+	Payer       string        `json:"payer"`
+	SplitType   string        `json:"split_type"`
+	Splits      []SplitDetail `json:"splits"`
 }
 
 type SettleUpCommand struct {
@@ -47,16 +54,23 @@ type SettleUpCommand struct {
 	AmountCents int64  `json:"amount_cents"`
 }
 
-func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string, groupID string, desc string, totalCents int64, payer string, splitMap map[string]int64) (*domain.Expense, error) {
-	totalMoney, err := money.New(totalCents)
-	if err != nil {
-		return nil, fmt.Errorf("invalid total amount: %w", err)
+func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string, groupID string, desc string, totalCents int64, payer string, splitType string, inputSplits []SplitDetail) (*domain.Expense, error) {
+	var domainInputs []domain.AllocationInput
+	for _, split := range inputSplits {
+		domainInputs = append(domainInputs, domain.AllocationInput{
+			UserID: domain.UserID(split.UserID),
+			Value:  split.Value,
+		})
 	}
 
-	var splits []domain.Split
-	for user, cents := range splitMap {
-		splitMoney, _ := money.New(cents)
-		splits = append(splits, domain.Split{User: domain.UserID(user), Amount: splitMoney})
+	splits, err := domain.Allocate(domain.AllocationType(splitType), totalCents, domainInputs)
+	if err != nil {
+		return nil, fmt.Errorf("allocation math error: %w", err)
+	}
+
+	totalMoney, err := money.New(totalCents)
+	if err != nil {
+		return nil, domain.ErrInvalidTotal
 	}
 
 	var groupIDPtr *domain.GroupID
@@ -84,7 +98,7 @@ func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string,
 }
 
 func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseCommand) error {
-	expense, err := s.buildAndValidateExpense(ctx, uuid.NewString(), cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.Splits)
+	expense, err := s.buildAndValidateExpense(ctx, uuid.NewString(), cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.SplitType, cmd.Splits)
 	if err != nil {
 		return fmt.Errorf("business rule violation: %w", err)
 	}
@@ -149,7 +163,7 @@ func (s *ExpenseService) GetFriendBalances(ctx context.Context, userID string) (
 }
 
 func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
-	expense, err := s.buildAndValidateExpense(ctx, cmd.ID, cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.Splits)
+	expense, err := s.buildAndValidateExpense(ctx, cmd.ID, cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.SplitType, cmd.Splits)
 	if err != nil {
 		return fmt.Errorf("business rule violation: %w", err)
 	}
@@ -183,8 +197,9 @@ func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) erro
 		Description: "Payment",
 		TotalCents:  cmd.AmountCents,
 		Payer:       cmd.PayerID,
-		Splits: map[string]int64{
-			cmd.ReceiverID: cmd.AmountCents,
+		SplitType:   string(domain.AllocationTypeExact),
+		Splits: []SplitDetail{
+			{UserID: cmd.ReceiverID, Value: float64(cmd.AmountCents)},
 		},
 	}
 
