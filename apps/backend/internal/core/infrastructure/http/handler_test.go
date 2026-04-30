@@ -213,6 +213,47 @@ func TestAPIHandler_Expenses(t *testing.T) {
 	})
 }
 
+func TestAPIHandler_CreateSettlement(t *testing.T) {
+	expenseRepo := &mocks.MockExpenseRepo{
+		SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
+			return nil
+		},
+	}
+	expenseService := application.NewExpenseService(expenseRepo, &mocks.MockGroupRepo{})
+	userService := application.NewUserService(&mocks.MockUserRepo{})
+	groupService := application.NewGroupService(&mocks.MockGroupRepo{}, expenseRepo)
+
+	handler := NewAPIHandler(expenseService, userService, groupService)
+
+	t.Run("POST /settlements succeeds", func(t *testing.T) {
+		cmd := application.SettleUpCommand{
+			PayerID:     "Alice",
+			ReceiverID:  "Bob",
+			AmountCents: 2000,
+		}
+		body, _ := json.Marshal(cmd)
+		req := httptest.NewRequest("POST", "/settlements", bytes.NewBuffer(body))
+		rr := httptest.NewRecorder()
+
+		handler.CreateSettlement(rr, req)
+
+		if rr.Code != http.StatusCreated {
+			t.Errorf("expected 201 Created, got %d. Body: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("POST /settlements handles bad JSON", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/settlements", bytes.NewBufferString("{bad-json}"))
+		rr := httptest.NewRecorder()
+
+		handler.CreateSettlement(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 Bad Request, got %d", rr.Code)
+		}
+	})
+}
+
 func TestAPIHandler_Groups(t *testing.T) {
 	expenseRepo := &mocks.MockExpenseRepo{}
 	userRepo := &mocks.MockUserRepo{}

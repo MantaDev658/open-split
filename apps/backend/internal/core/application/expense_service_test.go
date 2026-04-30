@@ -95,3 +95,46 @@ func TestExpenseService_AddExpense_WithGroups(t *testing.T) {
 		}
 	})
 }
+
+func TestExpenseService_SettleUp(t *testing.T) {
+	eRepo := &mocks.MockExpenseRepo{
+		SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
+			return nil
+		},
+	}
+	gRepo := &mocks.MockGroupRepo{}
+	service := NewExpenseService(eRepo, gRepo)
+
+	t.Run("Fails if payer and receiver are the same", func(t *testing.T) {
+		cmd := SettleUpCommand{
+			PayerID:     "Alice",
+			ReceiverID:  "Alice",
+			AmountCents: 2000,
+		}
+		if err := service.SettleUp(context.Background(), cmd); err == nil {
+			t.Error("expected error when payer equals receiver")
+		}
+	})
+
+	t.Run("Fails if amount is zero", func(t *testing.T) {
+		cmd := SettleUpCommand{
+			PayerID:     "Alice",
+			ReceiverID:  "Bob",
+			AmountCents: 0,
+		}
+		if err := service.SettleUp(context.Background(), cmd); err == nil {
+			t.Error("expected error for zero amount")
+		}
+	})
+
+	t.Run("Succeeds with valid parameters", func(t *testing.T) {
+		cmd := SettleUpCommand{
+			PayerID:     "Alice",
+			ReceiverID:  "Bob",
+			AmountCents: 1500,
+		}
+		if err := service.SettleUp(context.Background(), cmd); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}

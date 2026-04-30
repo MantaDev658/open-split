@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +39,13 @@ type UpdateExpenseCommand struct {
 	TotalCents  int64            `json:"total_cents"`
 	Payer       string           `json:"payer"`
 	Splits      map[string]int64 `json:"splits"`
+}
+
+type SettleUpCommand struct {
+	GroupID     string `json:"group_id,omitempty"`
+	PayerID     string `json:"payer_id"`
+	ReceiverID  string `json:"receiver_id"`
+	AmountCents int64  `json:"amount_cents"`
 }
 
 func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string, groupID string, desc string, totalCents int64, payer string, splitMap map[string]int64) (*domain.Expense, error) {
@@ -135,4 +143,25 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
 	return nil
+}
+
+func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) error {
+	if cmd.PayerID == cmd.ReceiverID {
+		return errors.New("payer and receiver cannot be the same person")
+	}
+	if cmd.AmountCents <= 0 {
+		return errors.New("settlement amount must be greater than zero")
+	}
+
+	createCmd := CreateExpenseCommand{
+		GroupID:     cmd.GroupID,
+		Description: "Payment",
+		TotalCents:  cmd.AmountCents,
+		Payer:       cmd.PayerID,
+		Splits: map[string]int64{
+			cmd.ReceiverID: cmd.AmountCents,
+		},
+	}
+
+	return s.AddExpense(ctx, createCmd)
 }

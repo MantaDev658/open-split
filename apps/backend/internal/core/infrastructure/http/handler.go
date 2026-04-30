@@ -155,6 +155,22 @@ func (h *APIHandler) DeleteExpense(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"status": "expense deleted"}`))
 }
 
+// POST /settlements
+func (h *APIHandler) CreateSettlement(w http.ResponseWriter, r *http.Request) {
+	cmd, err := decodeJSON[application.SettleUpCommand](w, r)
+	if err != nil {
+		return // Error already handled by decodeJSON
+	}
+
+	if err := h.expenseService.SettleUp(r.Context(), cmd); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte(`{"status": "settlement recorded"}`))
+}
+
 // POST /users
 func (h *APIHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	cmd, err := decodeJSON[application.CreateUserCommand](w, r)
