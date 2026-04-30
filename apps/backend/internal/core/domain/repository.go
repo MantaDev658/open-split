@@ -11,12 +11,15 @@ var (
 )
 
 type User struct {
-	ID          UserID
-	DisplayName string
+	ID           UserID
+	DisplayName  string
+	IsActive     bool
+	PasswordHash string
 }
 
 type UserRepository interface {
 	Save(ctx context.Context, user User) error
+	GetByID(ctx context.Context, id UserID) (*User, error)
 	ListAll(ctx context.Context) ([]User, error)
 	Update(ctx context.Context, userID UserID, displayName string) error
 	SoftDelete(ctx context.Context, userId UserID) error

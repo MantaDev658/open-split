@@ -40,13 +40,18 @@ func (h *APIHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.expenseService.AddExpense(r.Context(), cmd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	authUserID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok {
+		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
+	cmd.Payer = authUserID
 
+	if err := h.expenseService.AddExpense(r.Context(), cmd); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
-	_, _ = w.Write([]byte(`{"status": "expense created"}`))
 }
 
 // GET /expenses?group_id={optional}
@@ -175,32 +180,61 @@ func (h *APIHandler) DeleteExpense(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) CreateSettlement(w http.ResponseWriter, r *http.Request) {
 	cmd, err := decodeJSON[application.SettleUpCommand](w, r)
 	if err != nil {
-		return // Error already handled by decodeJSON
+		return
 	}
+
+	authUserID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok {
+		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	cmd.PayerID = authUserID
 
 	if err := h.expenseService.SettleUp(r.Context(), cmd); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	w.WriteHeader(http.StatusCreated)
-	_, _ = w.Write([]byte(`{"status": "settlement recorded"}`))
 }
 
-// POST /users
-func (h *APIHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	cmd, err := decodeJSON[application.CreateUserCommand](w, r)
+// POST /auth/register
+func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	cmd, err := decodeJSON[struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		Password    string `json:"password"`
+	}](w, r)
 	if err != nil {
 		return
 	}
 
-	if err := h.userService.CreateUser(r.Context(), cmd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.userService.RegisterUser(r.Context(), cmd.ID, cmd.DisplayName, cmd.Password); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// POST /auth/login
+func (h *APIHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
+	cmd, err := decodeJSON[struct {
+		ID       string `json:"id"`
+		Password string `json:"password"`
+	}](w, r)
+	if err != nil {
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	_, _ = w.Write([]byte(`{"status": "user created"}`))
+	token, err := h.userService.LoginUser(r.Context(), cmd.ID, cmd.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": token}); err != nil {
+		return
+	}
 }
 
 // GET /users

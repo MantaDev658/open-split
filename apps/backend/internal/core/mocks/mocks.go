@@ -68,6 +68,7 @@ func (m *MockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error
 // User
 type MockUserRepo struct {
 	SaveFunc       func(ctx context.Context, user domain.User) error
+	GetByIDFunc    func(ctx context.Context, id domain.UserID) (*domain.User, error)
 	ListAllFunc    func(ctx context.Context) ([]domain.User, error)
 	UpdateFunc     func(ctx context.Context, user domain.UserID, displayName string) error
 	SoftDeleteFunc func(ctx context.Context, user domain.UserID) error
@@ -78,6 +79,13 @@ func (m *MockUserRepo) Save(ctx context.Context, user domain.User) error {
 		return m.SaveFunc(ctx, user)
 	}
 	return nil
+}
+
+func (m *MockUserRepo) GetByID(ctx context.Context, id domain.UserID) (*domain.User, error) {
+	if m.GetByIDFunc != nil {
+		return m.GetByIDFunc(ctx, id)
+	}
+	return &domain.User{ID: id, IsActive: true}, nil
 }
 
 func (m *MockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {

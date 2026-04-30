@@ -2,60 +2,79 @@ package application
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/apps/backend/internal/core/mocks"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
-func TestUserService_CreateUser(t *testing.T) {
-	tests := []struct {
-		name        string
-		cmd         CreateUserCommand
-		mockSave    func(ctx context.Context, u domain.User) error
-		expectError bool
-	}{
-		{
-			name:        "Success path",
-			cmd:         CreateUserCommand{ID: "Alice", DisplayName: "Alice Smith"},
-			mockSave:    func(ctx context.Context, u domain.User) error { return nil },
-			expectError: false,
-		},
-		{
-			name:        "Fails on empty ID",
-			cmd:         CreateUserCommand{ID: "", DisplayName: "No Name"},
-			mockSave:    func(ctx context.Context, u domain.User) error { return nil },
-			expectError: true,
-		},
-		{
-			name:        "Fails on infrastructure error",
-			cmd:         CreateUserCommand{ID: "Bob", DisplayName: "Bob Builder"},
-			mockSave:    func(ctx context.Context, u domain.User) error { return errors.New("db down") },
-			expectError: true,
-		},
-	}
+func TestUserService_Auth(t *testing.T) {
+	secret := []byte("test-secret")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &mocks.MockUserRepo{SaveFunc: tt.mockSave}
-			service := NewUserService(repo)
+	t.Run("RegisterUser hashes password securely", func(t *testing.T) {
+		var savedHash string
+		repo := &mocks.MockUserRepo{
+			SaveFunc: func(ctx context.Context, user domain.User) error {
+				savedHash = user.PasswordHash
+				return nil
+			},
+		}
+		service := NewUserService(repo, secret)
 
-			err := service.CreateUser(context.Background(), tt.cmd)
-			if (err != nil) != tt.expectError {
-				t.Errorf("CreateUser() error = %v, expectError %v", err, tt.expectError)
-			}
-		})
-	}
+		err := service.RegisterUser(context.Background(), "Alice", "Alice S.", "my-password")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if savedHash == "" || savedHash == "my-password" {
+			t.Error("expected password to be hashed, but it was stored as plain text or empty")
+		}
+
+		// verify it's a valid bcrypt hash
+		if err := bcrypt.CompareHashAndPassword([]byte(savedHash), []byte("my-password")); err != nil {
+			t.Error("stored hash does not match input password")
+		}
+	})
+
+	t.Run("LoginUser returns valid JWT", func(t *testing.T) {
+		hash, _ := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.DefaultCost)
+		repo := &mocks.MockUserRepo{
+			GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+				return &domain.User{
+					ID:           "Alice",
+					IsActive:     true,
+					PasswordHash: string(hash),
+				}, nil
+			},
+		}
+		service := NewUserService(repo, secret)
+
+		_, err := service.LoginUser(context.Background(), "Alice", "wrong-password")
+		if err == nil {
+			t.Error("expected login to fail with incorrect password")
+		}
+
+		token, err := service.LoginUser(context.Background(), "Alice", "correct-password")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(strings.Split(token, ".")) != 3 {
+			t.Error("expected a valid 3-part JWT string")
+		}
+	})
 }
 
 func TestUserService_ListUsers(t *testing.T) {
+	secret := []byte("test-secret")
 	repo := &mocks.MockUserRepo{
 		ListAllFunc: func(ctx context.Context) ([]domain.User, error) {
 			return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 		},
 	}
-	service := NewUserService(repo)
+	service := NewUserService(repo, secret)
 
 	users, err := service.ListUsers(context.Background())
 	if err != nil {
@@ -67,8 +86,12 @@ func TestUserService_ListUsers(t *testing.T) {
 }
 
 func TestUserService_UpdateUser(t *testing.T) {
-	repo := &mocks.MockUserRepo{}
-	service := NewUserService(repo)
+	repo := &mocks.MockUserRepo{
+		UpdateFunc: func(ctx context.Context, id domain.UserID, newName string) error {
+			return nil
+		},
+	}
+	service := NewUserService(repo, []byte("test-secret"))
 
 	t.Run("Fails with empty name", func(t *testing.T) {
 		err := service.UpdateUser(context.Background(), "Alice", "")
@@ -86,8 +109,12 @@ func TestUserService_UpdateUser(t *testing.T) {
 }
 
 func TestUserService_DeleteUser(t *testing.T) {
-	repo := &mocks.MockUserRepo{}
-	service := NewUserService(repo)
+	repo := &mocks.MockUserRepo{
+		SoftDeleteFunc: func(ctx context.Context, id domain.UserID) error {
+			return nil
+		},
+	}
+	service := NewUserService(repo, []byte("test-secret"))
 
 	err := service.DeleteUser(context.Background(), "Alice")
 	if err != nil {

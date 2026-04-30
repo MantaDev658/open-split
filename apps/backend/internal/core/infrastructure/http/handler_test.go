@@ -12,6 +12,8 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/apps/backend/internal/core/mocks"
 	"opensplit/libs/shared/money"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestAPIHandler_GetBalances(t *testing.T) {
@@ -28,10 +30,16 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 		)
 		return []*domain.Expense{exp}, nil
 	}}
-	userRepo := &mocks.MockUserRepo{}
+	userRepo := &mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}
 	groupRepo := &mocks.MockGroupRepo{}
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
-	userService := application.NewUserService(userRepo)
+	userService := application.NewUserService(userRepo, []byte("test-secret"))
 	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
@@ -56,24 +64,17 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 func TestAPIHandler_Users(t *testing.T) {
 	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
 	uService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
 		ListAllFunc: func(ctx context.Context) ([]domain.User, error) {
 			return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 		},
-	})
+	}, []byte("test-secret"))
 	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
-
-	t.Run("POST /users creates a user", func(t *testing.T) {
-		body, _ := json.Marshal(application.CreateUserCommand{ID: "Charlie", DisplayName: "Charlie"})
-		req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(body))
-		rr := httptest.NewRecorder()
-
-		handler.CreateUser(rr, req)
-
-		if rr.Code != http.StatusCreated {
-			t.Errorf("expected 201, got %d", rr.Code)
-		}
-	})
 
 	t.Run("GET /users returns list", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/users", nil)
@@ -113,9 +114,59 @@ func TestAPIHandler_Users(t *testing.T) {
 	})
 }
 
+// Add this block to test the Auth Endpoints
+func TestAPIHandler_Auth(t *testing.T) {
+	uService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
+
+	handler := NewAPIHandler(
+		application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}),
+		uService,
+		application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}),
+	)
+
+	t.Run("POST /auth/register creates user", func(t *testing.T) {
+		body := []byte(`{"id": "Alice", "display_name": "Alice", "password": "password123"}`)
+		req := httptest.NewRequest("POST", "/auth/register", bytes.NewBuffer(body))
+		rr := httptest.NewRecorder()
+
+		handler.RegisterUser(rr, req)
+
+		if rr.Code != http.StatusCreated {
+			t.Errorf("expected 201, got %d", rr.Code)
+		}
+	})
+
+	t.Run("POST /auth/login returns token", func(t *testing.T) {
+		body := []byte(`{"id": "Alice", "password": "password123"}`)
+		req := httptest.NewRequest("POST", "/auth/login", bytes.NewBuffer(body))
+		rr := httptest.NewRecorder()
+
+		handler.LoginUser(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+		if !bytes.Contains(rr.Body.Bytes(), []byte("token")) {
+			t.Errorf("expected JSON with token, got %s", rr.Body.String())
+		}
+	})
+}
+
 func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
-	uService := application.NewUserService(&mocks.MockUserRepo{})
+	uService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
 	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
@@ -145,10 +196,15 @@ func TestAPIHandler_Expenses(t *testing.T) {
 		)
 		return []*domain.Expense{exp}, nil
 	}}
-	userRepo := &mocks.MockUserRepo{}
 	groupRepo := &mocks.MockGroupRepo{}
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
-	userService := application.NewUserService(userRepo)
+	userService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
 	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
@@ -190,6 +246,8 @@ func TestAPIHandler_Expenses(t *testing.T) {
 		req := httptest.NewRequest("PUT", "/expenses/exp-123", bytes.NewBuffer(body))
 		// Inject the path value for the test router
 		req.SetPathValue("id", "exp-123")
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
 
 		rr := httptest.NewRecorder()
 		handler.UpdateExpense(rr, req)
@@ -203,6 +261,8 @@ func TestAPIHandler_Expenses(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/expenses/exp-123", nil)
 		// Inject the path value for the test router
 		req.SetPathValue("id", "exp-123")
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
 
 		rr := httptest.NewRecorder()
 		handler.DeleteExpense(rr, req)
@@ -220,7 +280,13 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 		},
 	}
 	expenseService := application.NewExpenseService(expenseRepo, &mocks.MockGroupRepo{})
-	userService := application.NewUserService(&mocks.MockUserRepo{})
+	userService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
 	groupService := application.NewGroupService(&mocks.MockGroupRepo{}, expenseRepo)
 
 	handler := NewAPIHandler(expenseService, userService, groupService)
@@ -233,6 +299,8 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 		}
 		body, _ := json.Marshal(cmd)
 		req := httptest.NewRequest("POST", "/settlements", bytes.NewBuffer(body))
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
 		handler.CreateSettlement(rr, req)
@@ -244,6 +312,8 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 
 	t.Run("POST /settlements handles bad JSON", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/settlements", bytes.NewBufferString("{bad-json}"))
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
 		handler.CreateSettlement(rr, req)
@@ -265,10 +335,17 @@ func TestAPIHandler_GetFriendBalances(t *testing.T) {
 			return []*domain.Expense{exp}, nil
 		},
 	}
+	userService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
 
 	handler := NewAPIHandler(
 		application.NewExpenseService(eRepo, &mocks.MockGroupRepo{}),
-		application.NewUserService(&mocks.MockUserRepo{}),
+		userService,
 		application.NewGroupService(&mocks.MockGroupRepo{}, eRepo),
 	)
 
@@ -292,14 +369,19 @@ func TestAPIHandler_GetFriendBalances(t *testing.T) {
 
 func TestAPIHandler_Groups(t *testing.T) {
 	expenseRepo := &mocks.MockExpenseRepo{}
-	userRepo := &mocks.MockUserRepo{}
 	groupRepo := &mocks.MockGroupRepo{ListForUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Group, error) {
 		return []*domain.Group{
 			{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}},
 		}, nil
 	}}
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
-	userService := application.NewUserService(userRepo)
+	userService := application.NewUserService(&mocks.MockUserRepo{
+		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
+		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
+		},
+	}, []byte("test-secret"))
 	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 

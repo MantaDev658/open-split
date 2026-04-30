@@ -19,17 +19,25 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 
 func (r *UserRepository) Save(ctx context.Context, user domain.User) error {
 	query := `
-		INSERT INTO users (id, display_name)
-		VALUES ($1, $2)
+		INSERT INTO users (id, display_name, password_hash)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO UPDATE 
 		SET display_name = EXCLUDED.display_name, 
+		    password_hash = EXCLUDED.password_hash,
 		    is_active = TRUE
 	`
-	_, err := r.db.ExecContext(ctx, query, string(user.ID), user.DisplayName)
+	_, err := r.db.ExecContext(ctx, query, string(user.ID), user.DisplayName, user.PasswordHash)
+	return err
+}
+
+func (r *UserRepository) GetByID(ctx context.Context, id domain.UserID) (*domain.User, error) {
+	query := "SELECT id, display_name, password_hash, is_active FROM users WHERE id = $1"
+	var u domain.User
+	err := r.db.QueryRowContext(ctx, query, string(id)).Scan(&u.ID, &u.DisplayName, &u.PasswordHash, &u.IsActive)
 	if err != nil {
-		return fmt.Errorf("failed to save user: %w", err)
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
-	return nil
+	return &u, nil
 }
 
 func (r *UserRepository) ListAll(ctx context.Context) ([]domain.User, error) {

@@ -13,18 +13,26 @@ import (
 	openhttp "opensplit/apps/backend/internal/core/infrastructure/http"
 	"opensplit/apps/backend/internal/core/infrastructure/postgres"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable"
+		log.Fatal("DATABASE_URL environment variable is required")
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is required")
 	}
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatalf("❌ Could not connect to DB: %v", err)
+		log.Fatalf("Could not connect to DB: %v", err)
 	}
 	defer db.Close()
 
@@ -32,42 +40,49 @@ func main() {
 	groupRepo := postgres.NewGroupRepository(db)
 	expenseRepo := postgres.NewExpenseRepository(db)
 
-	userService := application.NewUserService(userRepo)
+	userService := application.NewUserService(userRepo, []byte(jwtSecret))
 	groupService := application.NewGroupService(groupRepo, expenseRepo)
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
 
 	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
 
-	mux := http.NewServeMux()
+	// Protected Routes (Requires Auth)
+	protectedMux := http.NewServeMux()
+	protectedMux.HandleFunc("POST /expenses", handler.CreateExpense)
+	protectedMux.HandleFunc("GET /expenses", handler.ListExpenses)
+	protectedMux.HandleFunc("GET /balances", handler.GetBalances)
+	protectedMux.HandleFunc("GET /friends/{user_id}/balances", handler.GetFriendBalances)
+	protectedMux.HandleFunc("PUT /expenses/{id}", handler.UpdateExpense)
+	protectedMux.HandleFunc("DELETE /expenses/{id}", handler.DeleteExpense)
+	protectedMux.HandleFunc("POST /settlements", handler.CreateSettlement)
 
-	// Expense
-	mux.HandleFunc("POST /expenses", handler.CreateExpense)
-	mux.HandleFunc("GET /expenses", handler.ListExpenses)
-	mux.HandleFunc("GET /balances", handler.GetBalances)
-	mux.HandleFunc("GET /friends/{user_id}/balances", handler.GetFriendBalances)
-	mux.HandleFunc("PUT /expenses/{id}", handler.UpdateExpense)
-	mux.HandleFunc("DELETE /expenses/{id}", handler.DeleteExpense)
-	mux.HandleFunc("POST /settlements", handler.CreateSettlement)
+	protectedMux.HandleFunc("GET /users", handler.ListUsers)
+	protectedMux.HandleFunc("PUT /users/{id}", handler.UpdateUser)
+	protectedMux.HandleFunc("DELETE /users/{id}", handler.DeleteUser)
 
-	// User
-	mux.HandleFunc("POST /users", handler.CreateUser)
-	mux.HandleFunc("GET /users", handler.ListUsers)
-	mux.HandleFunc("PUT /users/{id}", handler.UpdateUser)
-	mux.HandleFunc("DELETE /users/{id}", handler.DeleteUser)
+	protectedMux.HandleFunc("POST /groups", handler.CreateGroup)
+	protectedMux.HandleFunc("POST /groups/{id}/members", handler.AddGroupMember)
+	protectedMux.HandleFunc("GET /groups", handler.ListGroups)
+	protectedMux.HandleFunc("PUT /groups/{id}", handler.UpdateGroup)
+	protectedMux.HandleFunc("DELETE /groups/{id}", handler.DeleteGroup)
+	protectedMux.HandleFunc("DELETE /groups/{id}/members/{user_id}", handler.RemoveGroupMember)
 
-	// Group
-	mux.HandleFunc("POST /groups", handler.CreateGroup)
-	mux.HandleFunc("POST /groups/{id}/members", handler.AddGroupMember)
-	mux.HandleFunc("GET /groups", handler.ListGroups)
-	mux.HandleFunc("PUT /groups/{id}", handler.UpdateGroup)
-	mux.HandleFunc("DELETE /groups/{id}", handler.DeleteGroup)
-	mux.HandleFunc("DELETE /groups/{id}/members/{user_id}", handler.RemoveGroupMember)
+	authMiddleware := openhttp.AuthMiddleware([]byte(jwtSecret))
+	protectedHandler := authMiddleware(protectedMux)
+
+	// Public Routes
+	mainMux := http.NewServeMux()
+	mainMux.HandleFunc("POST /auth/register", handler.RegisterUser)
+	mainMux.HandleFunc("POST /auth/login", handler.LoginUser)
+
+	// Delegate all other routes to the protected handler
+	mainMux.Handle("/", protectedHandler)
 
 	port := ":8080"
-	fmt.Printf("🚀 Open Split API running on http://localhost%s\n", port)
+	fmt.Printf("API running on port %s\n", port)
 	server := &http.Server{
 		Addr:              port,
-		Handler:           mux,
+		Handler:           mainMux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
