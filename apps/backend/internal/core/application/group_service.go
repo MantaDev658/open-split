@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -66,7 +65,7 @@ func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, use
 
 func (s *GroupService) UpdateGroup(ctx context.Context, id string, name string) error {
 	if name == "" {
-		return errors.New("group name cannot be empty")
+		return domain.ErrEmptyGroupName
 	}
 	return s.groupRepo.UpdateName(ctx, domain.GroupID(id), name)
 }
@@ -88,7 +87,7 @@ func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID 
 
 	if balance, exists := balances[uID]; exists && balance != 0 {
 		dollars := float64(balance) / 100.0
-		return fmt.Errorf("cannot remove user: outstanding balance of $%.2f must be settled first", dollars)
+		return fmt.Errorf("%w: $%.2f", domain.ErrOutstandingBalance, dollars)
 	}
 
 	return s.groupRepo.RemoveMember(ctx, gID, uID)

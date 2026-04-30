@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -71,7 +70,7 @@ func (r *UserRepository) Update(ctx context.Context, id domain.UserID, newName s
 	}
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		return errors.New("user not found or inactive")
+		return domain.ErrUserNotFound
 	}
 	return nil
 }
@@ -83,7 +82,7 @@ func (r *UserRepository) SoftDelete(ctx context.Context, id domain.UserID) error
 	}
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		return errors.New("user not found")
+		return domain.ErrUserNotFound
 	}
 	return nil
 }

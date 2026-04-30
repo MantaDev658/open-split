@@ -91,8 +91,8 @@ func TestExpenseService_AddExpense_WithGroups(t *testing.T) {
 		}
 
 		err := service.AddExpense(context.Background(), cmd)
-		if err == nil {
-			t.Error("expected error when payer is not in group, got nil")
+		if !errors.Is(err, domain.ErrUserNotInGroup) {
+			t.Errorf("expected ErrUserNotInGroup, got %v", err)
 		}
 	})
 }

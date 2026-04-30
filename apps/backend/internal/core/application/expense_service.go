@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -71,7 +70,7 @@ func (s *ExpenseService) buildAndValidateExpense(ctx context.Context, id string,
 		}
 
 		if !group.HasMember(domain.UserID(payer)) {
-			return nil, fmt.Errorf("payer %s is not a member of group %s", payer, groupID)
+			return nil, fmt.Errorf("%w: payer %s is not a member of group %s", domain.ErrUserNotInGroup, payer, groupID)
 		}
 
 		for _, split := range splits {
@@ -173,10 +172,10 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, id string) error {
 
 func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) error {
 	if cmd.PayerID == cmd.ReceiverID {
-		return errors.New("payer and receiver cannot be the same person")
+		return domain.ErrSamePayerReceiver
 	}
 	if cmd.AmountCents <= 0 {
-		return errors.New("settlement amount must be greater than zero")
+		return domain.ErrInvalidSettlementAmount
 	}
 
 	createCmd := CreateExpenseCommand{

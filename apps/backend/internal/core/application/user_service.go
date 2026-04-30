@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -59,11 +58,11 @@ func (s *UserService) RegisterUser(ctx context.Context, id, displayName, plainPa
 func (s *UserService) LoginUser(ctx context.Context, id, plainPassword string) (string, error) {
 	user, err := s.repo.GetByID(ctx, domain.UserID(id))
 	if err != nil || !user.IsActive {
-		return "", errors.New("invalid credentials or inactive account")
+		return "", domain.ErrUserNotFound
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(plainPassword)); err != nil {
-		return "", errors.New("invalid credentials")
+		return "", domain.ErrInvalidCredentials
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -79,7 +78,7 @@ func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s *UserService) UpdateUser(ctx context.Context, id string, displayName string) error {
 	if displayName == "" {
-		return errors.New("display name cannot be empty")
+		return domain.ErrEmptyDisplayName
 	}
 	return s.repo.Update(ctx, domain.UserID(id), displayName)
 }

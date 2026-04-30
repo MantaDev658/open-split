@@ -33,6 +33,14 @@ func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	return body, nil
 }
 
+func getAuthUserID(r *http.Request) (string, error) {
+	id, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || id == "" {
+		return "", domain.ErrUnauthorized
+	}
+	return id, nil
+}
+
 // POST /expenses
 func (h *APIHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	cmd, err := decodeJSON[application.CreateExpenseCommand](w, r)
@@ -40,12 +48,10 @@ func (h *APIHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authUserID, ok := r.Context().Value(UserIDKey).(string)
-	if !ok {
+	if cmd.Payer, err = getAuthUserID(r); err != nil {
 		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
-	cmd.Payer = authUserID
 
 	if err := h.expenseService.AddExpense(r.Context(), cmd); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -183,12 +189,10 @@ func (h *APIHandler) CreateSettlement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authUserID, ok := r.Context().Value(UserIDKey).(string)
-	if !ok {
+	if cmd.PayerID, err = getAuthUserID(r); err != nil {
 		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
-	cmd.PayerID = authUserID
 
 	if err := h.expenseService.SettleUp(r.Context(), cmd); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

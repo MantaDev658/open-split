@@ -2,12 +2,6 @@ package domain
 
 import (
 	"context"
-	"errors"
-)
-
-var (
-	ErrExpenseNotFound = errors.New("expense not found")
-	ErrUserNotFound    = errors.New("user not found")
 )
 
 type User struct {

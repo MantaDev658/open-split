@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -53,8 +54,8 @@ func TestUserService_Auth(t *testing.T) {
 		service := NewUserService(repo, secret)
 
 		_, err := service.LoginUser(context.Background(), "Alice", "wrong-password")
-		if err == nil {
-			t.Error("expected login to fail with incorrect password")
+		if !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Errorf("expected ErrInvalidCredentials, got %v", err)
 		}
 
 		token, err := service.LoginUser(context.Background(), "Alice", "correct-password")
@@ -95,8 +96,8 @@ func TestUserService_UpdateUser(t *testing.T) {
 
 	t.Run("Fails with empty name", func(t *testing.T) {
 		err := service.UpdateUser(context.Background(), "Alice", "")
-		if err == nil {
-			t.Error("expected error for empty display name")
+		if !errors.Is(err, domain.ErrEmptyDisplayName) {
+			t.Errorf("expected ErrEmptyDisplayName, got %v", err)
 		}
 	})
 

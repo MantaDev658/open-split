@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"time"
 
 	"opensplit/libs/shared/money"
@@ -9,12 +8,6 @@ import (
 
 type ExpenseID string
 type UserID string
-
-var (
-	ErrSplitsDoNotEqualTotal = errors.New("the sum of splits must exactly equal the total expense amount")
-	ErrMissingPayer          = errors.New("an expense must have a valid payer")
-	ErrNoSplits              = errors.New("an expense must have at least one split")
-)
 
 type Split struct {
 	User   UserID

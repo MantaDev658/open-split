@@ -2,7 +2,7 @@ package application
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
 
 	"opensplit/apps/backend/internal/core/domain"
@@ -17,8 +17,8 @@ func TestGroupService_CRUD(t *testing.T) {
 
 	t.Run("UpdateGroup fails on empty name", func(t *testing.T) {
 		err := service.UpdateGroup(context.Background(), "g1", "")
-		if err == nil {
-			t.Error("expected error for empty group name")
+		if !errors.Is(err, domain.ErrEmptyGroupName) {
+			t.Errorf("expected ErrEmptyGroupName, got %v", err)
 		}
 	})
 
@@ -51,11 +51,8 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 
 		// UserB owes $15.00, they should NOT be allowed to leave.
 		err := service.RemoveMember(context.Background(), "g1", "UserB")
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "outstanding balance") {
-			t.Errorf("expected balance error, got: %v", err)
+		if !errors.Is(err, domain.ErrOutstandingBalance) {
+			t.Errorf("expected ErrOutstandingBalance, got %v", err)
 		}
 	})
 
