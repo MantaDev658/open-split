@@ -30,20 +30,22 @@ func main() {
 		log.Fatal("JWT_SECRET environment variable is required")
 	}
 
-	db, err := sql.Open("postgres", dbURL)
+	rawDB, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Could not connect to DB: %v", err)
 	}
-	defer db.Close()
+	defer rawDB.Close()
 
-	auditRepo := postgres.NewAuditRepository(db)
-	userRepo := postgres.NewUserRepository(db)
-	groupRepo := postgres.NewGroupRepository(db)
-	expenseRepo := postgres.NewExpenseRepository(db)
+	db := postgres.NewDB(rawDB)
+
+	auditRepo := postgres.NewAuditRepository(rawDB)
+	userRepo := postgres.NewUserRepository(rawDB)
+	groupRepo := postgres.NewGroupRepository(rawDB)
+	expenseRepo := postgres.NewExpenseRepository(rawDB)
 
 	userService := application.NewUserService(userRepo, []byte(jwtSecret))
-	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo)
-	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo, db)
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo, db)
 
 	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
 

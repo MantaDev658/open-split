@@ -5,6 +5,25 @@ import (
 	"time"
 )
 
+// Transactor wraps multiple repository operations in a single atomic database transaction.
+type Transactor interface {
+	RunInTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// Page controls pagination for list queries. Limit=0 means no limit.
+// Cursor is the created_at of the last item seen; zero means start from the beginning.
+type Page struct {
+	Limit  int
+	Cursor time.Time
+}
+
+// FriendBalance is the aggregated net balance between two users across all non-group expenses.
+// Positive NetCents means the friend owes the user; negative means the user owes the friend.
+type FriendBalance struct {
+	FriendID UserID
+	NetCents int64
+}
+
 type AuditLog struct {
 	ID        string    `json:"id"`
 	GroupID   string    `json:"group_id"`
@@ -24,7 +43,7 @@ type User struct {
 
 type AuditRepository interface {
 	Save(ctx context.Context, log AuditLog) error
-	ListByGroup(ctx context.Context, groupID GroupID) ([]AuditLog, error)
+	ListByGroup(ctx context.Context, groupID GroupID, page Page) ([]AuditLog, error)
 }
 
 type UserRepository interface {
@@ -47,9 +66,9 @@ type GroupRepository interface {
 type ExpenseRepository interface {
 	Save(ctx context.Context, expense *Expense) error
 	GetByID(ctx context.Context, id ExpenseID) (*Expense, error)
-	ListAll(ctx context.Context) ([]*Expense, error)
-	ListByGroup(ctx context.Context, groupID GroupID) ([]*Expense, error)
-	ListNonGroupExpensesByUser(ctx context.Context, userID UserID) ([]*Expense, error)
+	ListAll(ctx context.Context, page Page) ([]*Expense, error)
+	ListByGroup(ctx context.Context, groupID GroupID, page Page) ([]*Expense, error)
+	GetFriendBalanceSummary(ctx context.Context, userID UserID) ([]FriendBalance, error)
 	Update(ctx context.Context, expense *Expense) error
 	Delete(ctx context.Context, id ExpenseID) error
 }

@@ -59,7 +59,7 @@ func TestExpenseRepository_Lifecycle(t *testing.T) {
 		t.Errorf("expected 2 splits, got %d", len(fetchedExp.Splits()))
 	}
 
-	allExpenses, err := repo.ListAll(ctx)
+	allExpenses, err := repo.ListAll(ctx, domain.Page{})
 	if err != nil {
 		t.Fatalf("failed to list all expenses: %v", err)
 	}

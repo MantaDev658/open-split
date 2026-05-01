@@ -52,12 +52,24 @@ func NewExpense(id ExpenseID, groupID *GroupID, desc string, total money.Money, 
 	}, nil
 }
 
-func (e *Expense) ID() ExpenseID       { return e.id }
-func (e *Expense) GroupID() *GroupID   { return e.groupID }
-func (e *Expense) Description() string { return e.description }
-func (e *Expense) Total() money.Money  { return e.total }
-func (e *Expense) Payer() UserID       { return e.payer }
-func (e *Expense) Splits() []Split     { return e.splits }
+// NewExpenseFromDB reconstitutes an expense from persistent storage.
+// It trusts that the data is already valid and sets createdAt from the database value.
+func NewExpenseFromDB(id ExpenseID, groupID *GroupID, desc string, total money.Money, payer UserID, splits []Split, createdAt time.Time) (*Expense, error) {
+	e, err := NewExpense(id, groupID, desc, total, payer, splits)
+	if err != nil {
+		return nil, err
+	}
+	e.createdAt = createdAt
+	return e, nil
+}
+
+func (e *Expense) ID() ExpenseID        { return e.id }
+func (e *Expense) GroupID() *GroupID    { return e.groupID }
+func (e *Expense) Description() string  { return e.description }
+func (e *Expense) Total() money.Money   { return e.total }
+func (e *Expense) Payer() UserID        { return e.payer }
+func (e *Expense) Splits() []Split      { return e.splits }
+func (e *Expense) CreatedAt() time.Time { return e.createdAt }
 
 func CalculateNetBalances(expenses []*Expense) map[UserID]int64 {
 	balances := make(map[UserID]int64)

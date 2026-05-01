@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"opensplit/apps/backend/internal/core/domain"
+
+	"github.com/lib/pq"
 )
 
 type GroupRepository struct {
@@ -17,14 +19,8 @@ func NewGroupRepository(db *sql.DB) *GroupRepository {
 	return &GroupRepository{db: db}
 }
 
-func (r *GroupRepository) Save(ctx context.Context, group *domain.Group) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	_, err = tx.ExecContext(ctx, `
+func saveGroup(ctx context.Context, tx *sql.Tx, group *domain.Group) error {
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO groups (id, name) VALUES ($1, $2)
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
 	`, group.ID, group.Name)
@@ -32,20 +28,32 @@ func (r *GroupRepository) Save(ctx context.Context, group *domain.Group) error {
 		return fmt.Errorf("failed to save group: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM group_members WHERE group_id = $1", group.ID)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, "DELETE FROM group_members WHERE group_id = $1", group.ID); err != nil {
 		return fmt.Errorf("failed to clear old members: %w", err)
 	}
 
 	for _, member := range group.Members {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)
-		`, group.ID, member)
-		if err != nil {
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)`, group.ID, member,
+		); err != nil {
 			return fmt.Errorf("failed to save member %s: %w", member, err)
 		}
 	}
+	return nil
+}
 
+func (r *GroupRepository) Save(ctx context.Context, group *domain.Group) error {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return saveGroup(ctx, tx, group)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := saveGroup(ctx, tx, group); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -76,19 +84,19 @@ func (r *GroupRepository) GetByID(ctx context.Context, id domain.GroupID) (*doma
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	return &domain.Group{
-		ID:      id,
-		Name:    name,
-		Members: members,
-	}, nil
+	return &domain.Group{ID: id, Name: name, Members: members}, nil
 }
 
+// ListForUser returns all groups the user belongs to, including each group's full member list.
+// Single query with array_agg replaces the previous N+1 pattern.
 func (r *GroupRepository) ListForUser(ctx context.Context, userID domain.UserID) ([]*domain.Group, error) {
 	query := `
-		SELECT g.id, g.name 
+		SELECT g.id, g.name,
+		       COALESCE(array_agg(gm.user_id ORDER BY gm.user_id), '{}') AS members
 		FROM groups g
 		JOIN group_members gm ON g.id = gm.group_id
-		WHERE gm.user_id = $1
+		WHERE g.id IN (SELECT group_id FROM group_members WHERE user_id = $1)
+		GROUP BY g.id, g.name, g.created_at
 		ORDER BY g.created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, string(userID))
@@ -100,46 +108,28 @@ func (r *GroupRepository) ListForUser(ctx context.Context, userID domain.UserID)
 	var groups []*domain.Group
 	for rows.Next() {
 		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, err
+		var memberIDs pq.StringArray
+		if err := rows.Scan(&id, &name, &memberIDs); err != nil {
+			return nil, fmt.Errorf("failed to scan group row: %w", err)
+		}
+		members := make([]domain.UserID, len(memberIDs))
+		for i, m := range memberIDs {
+			members[i] = domain.UserID(m)
 		}
 		groups = append(groups, &domain.Group{
 			ID:      domain.GroupID(id),
 			Name:    name,
-			Members: []domain.UserID{},
+			Members: members,
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
-
-	for _, g := range groups {
-		err := func() error {
-			mRows, err := r.db.QueryContext(ctx, "SELECT user_id FROM group_members WHERE group_id = $1", string(g.ID))
-			if err != nil {
-				return err
-			}
-			defer mRows.Close() // Safe here!
-
-			for mRows.Next() {
-				var uid string
-				if err := mRows.Scan(&uid); err == nil {
-					g.Members = append(g.Members, domain.UserID(uid))
-				}
-			}
-			return mRows.Err()
-		}()
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to get members for group %s: %w", g.ID, err)
-		}
-	}
-
 	return groups, nil
 }
 
 func (r *GroupRepository) UpdateName(ctx context.Context, id domain.GroupID, newName string) error {
-	res, err := r.db.ExecContext(ctx, "UPDATE groups SET name = $1 WHERE id = $2", newName, string(id))
+	res, err := execer(ctx, r.db).ExecContext(ctx, "UPDATE groups SET name = $1 WHERE id = $2", newName, string(id))
 	if err != nil {
 		return fmt.Errorf("failed to update group: %w", err)
 	}
@@ -151,8 +141,7 @@ func (r *GroupRepository) UpdateName(ctx context.Context, id domain.GroupID, new
 }
 
 func (r *GroupRepository) Delete(ctx context.Context, id domain.GroupID) error {
-	// ON DELETE CASCADE on our tables will automatically wipe group_members and group expenses
-	res, err := r.db.ExecContext(ctx, "DELETE FROM groups WHERE id = $1", string(id))
+	res, err := execer(ctx, r.db).ExecContext(ctx, "DELETE FROM groups WHERE id = $1", string(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete group: %w", err)
 	}
@@ -164,7 +153,7 @@ func (r *GroupRepository) Delete(ctx context.Context, id domain.GroupID) error {
 }
 
 func (r *GroupRepository) RemoveMember(ctx context.Context, groupID domain.GroupID, userID domain.UserID) error {
-	res, err := r.db.ExecContext(ctx, "DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", string(groupID), string(userID))
+	res, err := execer(ctx, r.db).ExecContext(ctx, "DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", string(groupID), string(userID))
 	if err != nil {
 		return fmt.Errorf("failed to remove member: %w", err)
 	}

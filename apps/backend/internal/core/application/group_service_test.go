@@ -10,11 +10,15 @@ import (
 	"opensplit/libs/shared/money"
 )
 
+func newTestGroupService(gRepo *mocks.MockGroupRepo, eRepo *mocks.MockExpenseRepo, aRepo *mocks.MockAuditRepo) *GroupService {
+	return NewGroupService(gRepo, eRepo, aRepo, &mocks.MockTransactor{})
+}
+
 func TestGroupService_CRUD(t *testing.T) {
 	gRepo := &mocks.MockGroupRepo{}
 	eRepo := &mocks.MockExpenseRepo{}
 	aRepo := &mocks.MockAuditRepo{}
-	service := NewGroupService(gRepo, eRepo, aRepo)
+	service := newTestGroupService(gRepo, eRepo, aRepo)
 
 	t.Run("UpdateGroup fails on empty name", func(t *testing.T) {
 		err := service.UpdateGroup(context.Background(), "g1", "", "u1")
@@ -31,14 +35,125 @@ func TestGroupService_CRUD(t *testing.T) {
 	})
 }
 
+func TestGroupService_CreateGroup_SavesAuditLog(t *testing.T) {
+	auditSaved := false
+	aRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
+			auditSaved = true
+			if log.Action != "CREATED_GROUP" {
+				t.Errorf("expected action CREATED_GROUP, got %s", log.Action)
+			}
+			return nil
+		},
+	}
+	gRepo := &mocks.MockGroupRepo{}
+	service := newTestGroupService(gRepo, &mocks.MockExpenseRepo{}, aRepo)
+
+	_, err := service.CreateGroup(context.Background(), CreateGroupCommand{Name: "Trip", CreatorID: "Alice"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditSaved {
+		t.Error("expected auditRepo.Save to be called for CreateGroup")
+	}
+}
+
+func TestGroupService_UpdateGroup_SavesAuditLog(t *testing.T) {
+	auditSaved := false
+	aRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
+			auditSaved = true
+			if log.Action != "RENAMED_GROUP" {
+				t.Errorf("expected action RENAMED_GROUP, got %s", log.Action)
+			}
+			return nil
+		},
+	}
+	service := newTestGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, aRepo)
+
+	if err := service.UpdateGroup(context.Background(), "g1", "New Name", "Alice"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditSaved {
+		t.Error("expected auditRepo.Save to be called for UpdateGroup")
+	}
+}
+
+func TestGroupService_DeleteGroup_SavesAuditLog(t *testing.T) {
+	auditSaved := false
+	aRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
+			auditSaved = true
+			if log.Action != "DELETED_GROUP" {
+				t.Errorf("expected action DELETED_GROUP, got %s", log.Action)
+			}
+			return nil
+		},
+	}
+	service := newTestGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, aRepo)
+
+	if err := service.DeleteGroup(context.Background(), "g1", "Alice"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditSaved {
+		t.Error("expected auditRepo.Save to be called for DeleteGroup")
+	}
+}
+
+func TestGroupService_AddMember_SavesAuditLog(t *testing.T) {
+	auditSaved := false
+	aRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
+			auditSaved = true
+			if log.Action != "ADDED_MEMBER" {
+				t.Errorf("expected action ADDED_MEMBER, got %s", log.Action)
+			}
+			return nil
+		},
+	}
+	gRepo := &mocks.MockGroupRepo{
+		GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
+			return &domain.Group{ID: id, Name: "Trip", Members: []domain.UserID{"Alice"}}, nil
+		},
+	}
+	service := newTestGroupService(gRepo, &mocks.MockExpenseRepo{}, aRepo)
+
+	if err := service.AddMemberToGroup(context.Background(), "g1", "Bob", "Alice"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditSaved {
+		t.Error("expected auditRepo.Save to be called for AddMemberToGroup")
+	}
+}
+
+func TestGroupService_RemoveMember_SavesAuditLog(t *testing.T) {
+	auditSaved := false
+	aRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
+			auditSaved = true
+			if log.Action != "REMOVED_GROUP_MEMBER" {
+				t.Errorf("expected action REMOVED_GROUP_MEMBER, got %s", log.Action)
+			}
+			return nil
+		},
+	}
+	service := newTestGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, aRepo)
+
+	if err := service.RemoveMember(context.Background(), "g1", "Bob", "Alice"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditSaved {
+		t.Error("expected auditRepo.Save to be called for RemoveMember")
+	}
+}
+
 func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{}
 	gRepo := &mocks.MockGroupRepo{}
 
 	t.Run("Fails if user has an outstanding balance", func(t *testing.T) {
-		// Mock an expense where UserA paid $30, split equally with UserB
 		eRepo := &mocks.MockExpenseRepo{
-			ListByGroupFunc: func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+			ListByGroupFunc: func(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]*domain.Expense, error) {
 				total, _ := money.New(3000)
 				split, _ := money.New(1500)
 				exp, _ := domain.NewExpense(
@@ -49,9 +164,8 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 			},
 		}
 
-		service := NewGroupService(gRepo, eRepo, aRepo)
+		service := newTestGroupService(gRepo, eRepo, aRepo)
 
-		// UserB owes $15.00, they should NOT be allowed to leave.
 		err := service.RemoveMember(context.Background(), "g1", "UserB", "a1")
 		if !errors.Is(err, domain.ErrOutstandingBalance) {
 			t.Errorf("expected ErrOutstandingBalance, got %v", err)
@@ -59,9 +173,8 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 	})
 
 	t.Run("Succeeds if user balance is exactly zero", func(t *testing.T) {
-		// Mock an empty ledger (no expenses = $0.00 balance)
 		eRepo := &mocks.MockExpenseRepo{}
-		service := NewGroupService(gRepo, eRepo, aRepo)
+		service := newTestGroupService(gRepo, eRepo, aRepo)
 
 		err := service.RemoveMember(context.Background(), "g1", "UserC", "a1")
 		if err != nil {

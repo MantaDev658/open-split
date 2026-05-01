@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// run a daily background job to manage audit log lifecycle
+// StartPartitionManager runs a daily background job to manage audit log partition lifecycle.
 func StartPartitionManager(ctx context.Context, db *sql.DB, retentionMonths int) {
 	ticker := time.NewTicker(24 * time.Hour)
 	go func() {
@@ -18,41 +18,57 @@ func StartPartitionManager(ctx context.Context, db *sql.DB, retentionMonths int)
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				managePartitions(db, retentionMonths)
+				managePartitions(db, retentionMonths, time.Now().UTC())
 			}
 		}
 	}()
-	// run once on startup
-	managePartitions(db, retentionMonths)
+	managePartitions(db, retentionMonths, time.Now().UTC())
 }
 
-func managePartitions(db *sql.DB, retentionMonths int) {
-	now := time.Now().UTC()
-
-	// create partition for NEXT month
+func managePartitions(db *sql.DB, retentionMonths int, now time.Time) {
+	// Create partition for next month.
 	nextMonth := now.AddDate(0, 1, 0)
 	startOfNext := time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, time.UTC)
 	endOfNext := startOfNext.AddDate(0, 1, 0)
-
 	tableName := fmt.Sprintf("audit_logs_y%dm%02d", startOfNext.Year(), startOfNext.Month())
 
 	// #nosec G201 -- DDL statements cannot use parameters; inputs are strictly controlled internal dates
-	createSql := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s PARTITION OF audit_logs 
+	createSQL := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s PARTITION OF audit_logs
 		FOR VALUES FROM ('%s') TO ('%s');
 	`, tableName, startOfNext.Format("2006-01-02"), endOfNext.Format("2006-01-02"))
 
-	if _, err := db.Exec(createSql); err != nil {
+	if _, err := db.Exec(createSQL); err != nil {
 		log.Printf("Failed to create audit partition %s: %v", tableName, err)
 	}
 
-	// drop partition from 6 months ago
-	expiredDate := now.AddDate(0, -retentionMonths, 0)
-	expiredTableName := fmt.Sprintf("audit_logs_y%dm%02d", expiredDate.Year(), expiredDate.Month())
+	// Drop all partitions whose month falls before the retention cutoff.
+	cutoff := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -retentionMonths, 0)
+	rows, err := db.Query(`SELECT tablename FROM pg_tables WHERE tablename ~ '^audit_logs_y[0-9]+m[0-9]+$'`)
+	if err != nil {
+		log.Printf("Failed to list audit partitions: %v", err)
+		return
+	}
+	defer rows.Close()
 
-	// #nosec G201 -- DDL statements cannot use parameters
-	dropSql := fmt.Sprintf("DROP TABLE IF EXISTS %s;", expiredTableName)
-	if _, err := db.Exec(dropSql); err != nil {
-		log.Printf("Failed to drop expired partition %s: %v", expiredTableName, err)
+	for rows.Next() {
+		var tbl string
+		if err := rows.Scan(&tbl); err != nil {
+			continue
+		}
+		var year, month int
+		if _, err := fmt.Sscanf(tbl, "audit_logs_y%dm%d", &year, &month); err != nil {
+			continue
+		}
+		partStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+		if partStart.Before(cutoff) {
+			// #nosec G201 -- tbl validated above via Sscanf pattern; no user input
+			if _, err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s;", tbl)); err != nil {
+				log.Printf("Failed to drop expired partition %s: %v", tbl, err)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating audit partitions: %v", err)
 	}
 }

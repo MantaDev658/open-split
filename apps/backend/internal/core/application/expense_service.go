@@ -15,13 +15,15 @@ type ExpenseService struct {
 	expenseRepo domain.ExpenseRepository
 	groupRepo   domain.GroupRepository
 	auditRepo   domain.AuditRepository
+	transactor  domain.Transactor
 }
 
-func NewExpenseService(eRepo domain.ExpenseRepository, gRepo domain.GroupRepository, aRepo domain.AuditRepository) *ExpenseService {
+func NewExpenseService(eRepo domain.ExpenseRepository, gRepo domain.GroupRepository, aRepo domain.AuditRepository, tx domain.Transactor) *ExpenseService {
 	return &ExpenseService{
 		expenseRepo: eRepo,
 		groupRepo:   gRepo,
 		auditRepo:   aRepo,
+		transactor:  tx,
 	}
 }
 
@@ -40,6 +42,13 @@ type CreateExpenseCommand struct {
 	AuditActionOverride string        `json:"-"`
 }
 
+func (c CreateExpenseCommand) Validate() error {
+	if c.TotalCents <= 0 {
+		return domain.ErrInvalidTotal
+	}
+	return nil
+}
+
 type UpdateExpenseCommand struct {
 	ID          string        `json:"id"`
 	GroupID     string        `json:"group_id,omitempty"`
@@ -48,6 +57,13 @@ type UpdateExpenseCommand struct {
 	Payer       string        `json:"payer"`
 	SplitType   string        `json:"split_type"`
 	Splits      []SplitDetail `json:"splits"`
+}
+
+func (c UpdateExpenseCommand) Validate() error {
+	if c.TotalCents <= 0 {
+		return domain.ErrInvalidTotal
+	}
+	return nil
 }
 
 type SettleUpCommand struct {
@@ -109,41 +125,45 @@ func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseComman
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := s.expenseRepo.Save(dbCtx, expense); err != nil {
-		return fmt.Errorf("infrastructure failure: %w", err)
-	}
-
-	if cmd.GroupID != "" {
-		actionType := "CREATED_EXPENSE"
-		if cmd.AuditActionOverride != "" {
-			actionType = cmd.AuditActionOverride
+	return s.transactor.RunInTx(dbCtx, func(txCtx context.Context) error {
+		if err := s.expenseRepo.Save(txCtx, expense); err != nil {
+			return fmt.Errorf("infrastructure failure: %w", err)
 		}
 
-		_ = s.auditRepo.Save(ctx, domain.AuditLog{
-			ID: uuid.NewString(), GroupID: cmd.GroupID, UserID: cmd.Payer, Action: actionType, TargetID: string(expense.ID()), Details: cmd.Description,
-		})
-	}
-
-	return nil
+		if cmd.GroupID != "" {
+			actionType := "CREATED_EXPENSE"
+			if cmd.AuditActionOverride != "" {
+				actionType = cmd.AuditActionOverride
+			}
+			return s.auditRepo.Save(txCtx, domain.AuditLog{
+				ID:       uuid.NewString(),
+				GroupID:  cmd.GroupID,
+				UserID:   cmd.Payer,
+				Action:   actionType,
+				TargetID: string(expense.ID()),
+				Details:  cmd.Description,
+			})
+		}
+		return nil
+	})
 }
 
-func (s *ExpenseService) ListAllExpenses(ctx context.Context) ([]*domain.Expense, error) {
+func (s *ExpenseService) ListAllExpenses(ctx context.Context, page domain.Page) ([]*domain.Expense, error) {
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	expenses, err := s.expenseRepo.ListAll(dbCtx)
+	expenses, err := s.expenseRepo.ListAll(dbCtx, page)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch expenses: %w", err)
 	}
-
 	return expenses, nil
 }
 
-func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string) ([]*domain.Expense, error) {
+func (s *ExpenseService) ListExpensesByGroup(ctx context.Context, groupID string, page domain.Page) ([]*domain.Expense, error) {
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	expenses, err := s.expenseRepo.ListByGroup(dbCtx, domain.GroupID(groupID))
+	expenses, err := s.expenseRepo.ListByGroup(dbCtx, domain.GroupID(groupID), page)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch group expenses: %w", err)
 	}
@@ -154,30 +174,28 @@ func (s *ExpenseService) GetFriendBalances(ctx context.Context, userID string) (
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	expenses, err := s.expenseRepo.ListNonGroupExpensesByUser(dbCtx, domain.UserID(userID))
+	balances, err := s.expenseRepo.GetFriendBalanceSummary(dbCtx, domain.UserID(userID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch friend expenses: %w", err)
+		return nil, fmt.Errorf("failed to fetch friend balances: %w", err)
 	}
 
-	balances := domain.CalculateNetBalances(expenses)
-	suggestions := domain.SimplifyDebts(balances)
-
-	var userDebts []domain.Transaction
-	for _, debt := range suggestions {
-		if string(debt.From) == userID || string(debt.To) == userID {
-			userDebts = append(userDebts, debt)
+	result := make([]domain.Transaction, 0, len(balances))
+	for _, b := range balances {
+		amt := b.NetCents
+		if amt < 0 {
+			amt = -amt
+		}
+		if b.NetCents > 0 {
+			result = append(result, domain.Transaction{From: b.FriendID, To: domain.UserID(userID), Amount: amt})
+		} else {
+			result = append(result, domain.Transaction{From: domain.UserID(userID), To: b.FriendID, Amount: amt})
 		}
 	}
-
-	if userDebts == nil {
-		return []domain.Transaction{}, nil
-	}
-
-	return userDebts, nil
+	return result, nil
 }
 
-func (s *ExpenseService) GetGroupActivity(ctx context.Context, groupID string) ([]domain.AuditLog, error) {
-	return s.auditRepo.ListByGroup(ctx, domain.GroupID(groupID))
+func (s *ExpenseService) GetGroupActivity(ctx context.Context, groupID string, page domain.Page) ([]domain.AuditLog, error) {
+	return s.auditRepo.ListByGroup(ctx, domain.GroupID(groupID), page)
 }
 
 func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
@@ -189,22 +207,23 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCom
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := s.expenseRepo.Update(dbCtx, expense); err != nil {
-		return fmt.Errorf("infrastructure failure: %w", err)
-	}
+	return s.transactor.RunInTx(dbCtx, func(txCtx context.Context) error {
+		if err := s.expenseRepo.Update(txCtx, expense); err != nil {
+			return fmt.Errorf("infrastructure failure: %w", err)
+		}
 
-	if cmd.GroupID != "" {
-		_ = s.auditRepo.Save(ctx, domain.AuditLog{
-			ID:       uuid.NewString(),
-			GroupID:  cmd.GroupID,
-			UserID:   cmd.Payer,
-			Action:   "UPDATED_EXPENSE",
-			TargetID: string(expense.ID()),
-			Details:  "Updated: " + cmd.Description,
-		})
-	}
-
-	return nil
+		if cmd.GroupID != "" {
+			return s.auditRepo.Save(txCtx, domain.AuditLog{
+				ID:       uuid.NewString(),
+				GroupID:  cmd.GroupID,
+				UserID:   cmd.Payer,
+				Action:   "UPDATED_EXPENSE",
+				TargetID: string(expense.ID()),
+				Details:  "Updated: " + cmd.Description,
+			})
+		}
+		return nil
+	})
 }
 
 func (s *ExpenseService) DeleteExpense(ctx context.Context, id string, userID string) error {
@@ -216,22 +235,23 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, id string, userID st
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := s.expenseRepo.Delete(dbCtx, domain.ExpenseID(id)); err != nil {
-		return fmt.Errorf("failed to delete expense: %w", err)
-	}
+	return s.transactor.RunInTx(dbCtx, func(txCtx context.Context) error {
+		if err := s.expenseRepo.Delete(txCtx, domain.ExpenseID(id)); err != nil {
+			return fmt.Errorf("failed to delete expense: %w", err)
+		}
 
-	if expense.GroupID() != nil {
-		_ = s.auditRepo.Save(ctx, domain.AuditLog{
-			ID:       uuid.NewString(),
-			GroupID:  string(*expense.GroupID()),
-			UserID:   userID,
-			Action:   "DELETED_EXPENSE",
-			TargetID: id,
-			Details:  "Deleted expense: " + expense.Description(),
-		})
-	}
-
-	return nil
+		if expense.GroupID() != nil {
+			return s.auditRepo.Save(txCtx, domain.AuditLog{
+				ID:       uuid.NewString(),
+				GroupID:  string(*expense.GroupID()),
+				UserID:   userID,
+				Action:   "DELETED_EXPENSE",
+				TargetID: id,
+				Details:  "Deleted expense: " + expense.Description(),
+			})
+		}
+		return nil
+	})
 }
 
 func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) error {
@@ -242,7 +262,7 @@ func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) erro
 		return domain.ErrInvalidSettlementAmount
 	}
 
-	createCmd := CreateExpenseCommand{
+	return s.AddExpense(ctx, CreateExpenseCommand{
 		GroupID:     cmd.GroupID,
 		Description: "Payment",
 		TotalCents:  cmd.AmountCents,
@@ -252,7 +272,5 @@ func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) erro
 			{UserID: cmd.ReceiverID, Value: float64(cmd.AmountCents)},
 		},
 		AuditActionOverride: "SETTLED_DEBT",
-	}
-
-	return s.AddExpense(ctx, createCmd)
+	})
 }

@@ -5,10 +5,24 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 )
 
+// Transactor
+
+type MockTransactor struct {
+	RunInTxFunc func(ctx context.Context, fn func(context.Context) error) error
+}
+
+func (m *MockTransactor) RunInTx(ctx context.Context, fn func(context.Context) error) error {
+	if m.RunInTxFunc != nil {
+		return m.RunInTxFunc(ctx, fn)
+	}
+	return fn(ctx) // default: execute fn directly, no real transaction
+}
+
 // Audit
+
 type MockAuditRepo struct {
 	SaveFunc        func(ctx context.Context, log domain.AuditLog) error
-	ListByGroupFunc func(ctx context.Context, groupID domain.GroupID) ([]domain.AuditLog, error)
+	ListByGroupFunc func(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]domain.AuditLog, error)
 }
 
 func (m *MockAuditRepo) Save(ctx context.Context, log domain.AuditLog) error {
@@ -18,22 +32,23 @@ func (m *MockAuditRepo) Save(ctx context.Context, log domain.AuditLog) error {
 	return nil
 }
 
-func (m *MockAuditRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]domain.AuditLog, error) {
+func (m *MockAuditRepo) ListByGroup(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]domain.AuditLog, error) {
 	if m.ListByGroupFunc != nil {
-		return m.ListByGroupFunc(ctx, groupID)
+		return m.ListByGroupFunc(ctx, groupID, page)
 	}
 	return nil, nil
 }
 
 // Expense
+
 type MockExpenseRepo struct {
-	SaveFunc                       func(ctx context.Context, expense *domain.Expense) error
-	GetByIDFunc                    func(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error)
-	ListAllFunc                    func(ctx context.Context) ([]*domain.Expense, error)
-	ListByGroupFunc                func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error)
-	ListNonGroupExpensesByUserFunc func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error)
-	UpdateFunc                     func(ctx context.Context, expense *domain.Expense) error
-	DeleteFunc                     func(ctx context.Context, id domain.ExpenseID) error
+	SaveFunc                    func(ctx context.Context, expense *domain.Expense) error
+	GetByIDFunc                 func(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error)
+	ListAllFunc                 func(ctx context.Context, page domain.Page) ([]*domain.Expense, error)
+	ListByGroupFunc             func(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]*domain.Expense, error)
+	GetFriendBalanceSummaryFunc func(ctx context.Context, userID domain.UserID) ([]domain.FriendBalance, error)
+	UpdateFunc                  func(ctx context.Context, expense *domain.Expense) error
+	DeleteFunc                  func(ctx context.Context, id domain.ExpenseID) error
 }
 
 func (m *MockExpenseRepo) Save(ctx context.Context, expense *domain.Expense) error {
@@ -50,29 +65,29 @@ func (m *MockExpenseRepo) GetByID(ctx context.Context, id domain.ExpenseID) (*do
 	return nil, domain.ErrExpenseNotFound
 }
 
-func (m *MockExpenseRepo) ListAll(ctx context.Context) ([]*domain.Expense, error) {
+func (m *MockExpenseRepo) ListAll(ctx context.Context, page domain.Page) ([]*domain.Expense, error) {
 	if m.ListAllFunc != nil {
-		return m.ListAllFunc(ctx)
+		return m.ListAllFunc(ctx, page)
 	}
 	return []*domain.Expense{}, nil
 }
 
-func (m *MockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+func (m *MockExpenseRepo) ListByGroup(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]*domain.Expense, error) {
 	if m.ListByGroupFunc != nil {
-		return m.ListByGroupFunc(ctx, groupID)
+		return m.ListByGroupFunc(ctx, groupID, page)
 	}
 	return nil, nil
 }
 
-func (m *MockExpenseRepo) ListNonGroupExpensesByUser(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
-	if m.ListNonGroupExpensesByUserFunc != nil {
-		return m.ListNonGroupExpensesByUserFunc(ctx, userID)
+func (m *MockExpenseRepo) GetFriendBalanceSummary(ctx context.Context, userID domain.UserID) ([]domain.FriendBalance, error) {
+	if m.GetFriendBalanceSummaryFunc != nil {
+		return m.GetFriendBalanceSummaryFunc(ctx, userID)
 	}
-	return []*domain.Expense{}, nil
+	return []domain.FriendBalance{}, nil
 }
 
 func (m *MockExpenseRepo) Update(ctx context.Context, expense *domain.Expense) error {
-	if m.ListByGroupFunc != nil {
+	if m.UpdateFunc != nil {
 		return m.UpdateFunc(ctx, expense)
 	}
 	return nil
@@ -86,6 +101,7 @@ func (m *MockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error
 }
 
 // User
+
 type MockUserRepo struct {
 	SaveFunc       func(ctx context.Context, user domain.User) error
 	GetByIDFunc    func(ctx context.Context, id domain.UserID) (*domain.User, error)
@@ -130,6 +146,7 @@ func (m *MockUserRepo) SoftDelete(ctx context.Context, user domain.UserID) error
 }
 
 // Group
+
 type MockGroupRepo struct {
 	SaveFunc         func(ctx context.Context, group *domain.Group) error
 	GetByIDFunc      func(ctx context.Context, id domain.GroupID) (*domain.Group, error)

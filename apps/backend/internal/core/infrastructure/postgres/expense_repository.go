@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/libs/shared/money"
@@ -26,6 +27,7 @@ func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
 		totalCents  int64
 		payer       string
 		splits      []domain.Split
+		createdAt   time.Time
 	}
 	expenseMap := make(map[string]*rawExpense)
 	var orderedIDs []string
@@ -34,8 +36,9 @@ func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
 		var expID, desc, payer, splitUser string
 		var exGroupID sql.NullString
 		var totalCents, splitCents int64
+		var createdAt time.Time
 
-		if err := rows.Scan(&expID, &exGroupID, &desc, &totalCents, &payer, &splitUser, &splitCents); err != nil {
+		if err := rows.Scan(&expID, &exGroupID, &desc, &totalCents, &payer, &createdAt, &splitUser, &splitCents); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -46,6 +49,7 @@ func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
 				description: desc,
 				totalCents:  totalCents,
 				payer:       payer,
+				createdAt:   createdAt,
 			}
 			orderedIDs = append(orderedIDs, expID)
 		}
@@ -69,13 +73,14 @@ func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
 			gID := domain.GroupID(raw.groupID.String)
 			groupIDPtr = &gID
 		}
-		exp, err := domain.NewExpense(
+		exp, err := domain.NewExpenseFromDB(
 			domain.ExpenseID(raw.id),
 			groupIDPtr,
 			raw.description,
 			totalMoney,
 			domain.UserID(raw.payer),
 			raw.splits,
+			raw.createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("corrupted data in db for expense %s: %w", id, err)
@@ -86,48 +91,45 @@ func mapRowsToExpenses(rows *sql.Rows) ([]*domain.Expense, error) {
 	return results, nil
 }
 
-func (r *ExpenseRepository) Save(ctx context.Context, expense *domain.Expense) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
+func insertExpense(ctx context.Context, tx *sql.Tx, expense *domain.Expense) error {
 	var dbGroupID interface{}
 	if expense.GroupID() != nil {
 		dbGroupID = string(*expense.GroupID())
 	}
 
-	insertExpenseQuery := `
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO expenses (id, group_id, description, total_cents, payer_id)
 		VALUES ($1, $2, $3, $4, $5)
-	`
-	_, err = tx.ExecContext(ctx, insertExpenseQuery,
-		expense.ID(),
-		dbGroupID,
-		expense.Description(),
-		expense.Total().Int64(),
-		expense.Payer(),
-	)
+	`, expense.ID(), dbGroupID, expense.Description(), expense.Total().Int64(), expense.Payer())
 	if err != nil {
 		return fmt.Errorf("failed to insert expense: %w", err)
 	}
 
-	insertSplitQuery := `
-		INSERT INTO splits (expense_id, user_id, amount_cents)
-		VALUES ($1, $2, $3)
-	`
 	for _, split := range expense.Splits() {
-		_, err = tx.ExecContext(ctx, insertSplitQuery, expense.ID(), split.User, split.Amount.Int64())
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO splits (expense_id, user_id, amount_cents) VALUES ($1, $2, $3)`,
+			expense.ID(), split.User, split.Amount.Int64(),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to insert split: %w", err)
 		}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
 	return nil
+}
+
+func (r *ExpenseRepository) Save(ctx context.Context, expense *domain.Expense) error {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return insertExpense(ctx, tx, expense)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := insertExpense(ctx, tx, expense); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
@@ -156,12 +158,8 @@ func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*
 		if err := rows.Scan(&userID, &amountCents); err != nil {
 			return nil, fmt.Errorf("failed to scan split: %w", err)
 		}
-
 		amount, _ := money.New(amountCents)
-		splits = append(splits, domain.Split{
-			User:   domain.UserID(userID),
-			Amount: amount,
-		})
+		splits = append(splits, domain.Split{User: domain.UserID(userID), Amount: amount})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
@@ -177,14 +175,24 @@ func (r *ExpenseRepository) GetByID(ctx context.Context, id domain.ExpenseID) (*
 	return domain.NewExpense(id, groupIDPtr, desc, totalMoney, domain.UserID(payer), splits)
 }
 
-func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, error) {
+func (r *ExpenseRepository) ListAll(ctx context.Context, page domain.Page) ([]*domain.Expense, error) {
 	query := `
-		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
+		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, e.created_at, s.user_id, s.amount_cents
 		FROM expenses e
 		JOIN splits s ON e.id = s.expense_id
-		ORDER BY e.created_at ASC
 	`
-	rows, err := r.db.QueryContext(ctx, query)
+	var args []any
+	if !page.Cursor.IsZero() {
+		args = append(args, page.Cursor)
+		query += fmt.Sprintf(" WHERE e.created_at > $%d", len(args))
+	}
+	query += " ORDER BY e.created_at ASC"
+	if page.Limit > 0 {
+		args = append(args, page.Limit)
+		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list expenses: %w", err)
 	}
@@ -192,15 +200,25 @@ func (r *ExpenseRepository) ListAll(ctx context.Context) ([]*domain.Expense, err
 	return mapRowsToExpenses(rows)
 }
 
-func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.GroupID, page domain.Page) ([]*domain.Expense, error) {
+	args := []any{string(groupID)}
 	query := `
-		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
+		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, e.created_at, s.user_id, s.amount_cents
 		FROM expenses e
 		JOIN splits s ON e.id = s.expense_id
 		WHERE e.group_id = $1
-		ORDER BY e.created_at ASC
 	`
-	rows, err := r.db.QueryContext(ctx, query, string(groupID))
+	if !page.Cursor.IsZero() {
+		args = append(args, page.Cursor)
+		query += fmt.Sprintf(" AND e.created_at > $%d", len(args))
+	}
+	query += " ORDER BY e.created_at ASC"
+	if page.Limit > 0 {
+		args = append(args, page.Limit)
+		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list group expenses: %w", err)
 	}
@@ -208,80 +226,59 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 	return mapRowsToExpenses(rows)
 }
 
-func (r *ExpenseRepository) ListNonGroupExpensesByUser(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
+// GetFriendBalanceSummary returns the net balance between userID and each of their friends
+// across all non-group expenses. Positive NetCents means the friend owes the user.
+func (r *ExpenseRepository) GetFriendBalanceSummary(ctx context.Context, userID domain.UserID) ([]domain.FriendBalance, error) {
 	query := `
-		SELECT e.id, e.group_id, e.description, e.total_cents, e.payer_id, s.user_id, s.amount_cents
+		SELECT
+			CASE WHEN e.payer_id = $1 THEN s.user_id ELSE e.payer_id END AS friend_id,
+			SUM(CASE WHEN e.payer_id = $1 THEN s.amount_cents ELSE -s.amount_cents END) AS net_cents
 		FROM expenses e
 		JOIN splits s ON e.id = s.expense_id
-		WHERE e.group_id IS NULL 
-		  AND (e.payer_id = $1 OR EXISTS (
-			  SELECT 1 FROM splits s2 WHERE s2.expense_id = e.id AND s2.user_id = $1
-		  ))
-		ORDER BY e.created_at ASC
+		WHERE e.group_id IS NULL
+		  AND (
+		    (e.payer_id = $1 AND s.user_id != $1)
+		    OR (s.user_id = $1 AND e.payer_id != $1)
+		  )
+		GROUP BY friend_id
+		HAVING SUM(CASE WHEN e.payer_id = $1 THEN s.amount_cents ELSE -s.amount_cents END) != 0
 	`
 	rows, err := r.db.QueryContext(ctx, query, string(userID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to list friendship expenses: %w", err)
+		return nil, fmt.Errorf("failed to query friend balances: %w", err)
 	}
 	defer rows.Close()
 
-	return mapRowsToExpenses(rows)
+	var balances []domain.FriendBalance
+	for rows.Next() {
+		var b domain.FriendBalance
+		var friendID string
+		if err := rows.Scan(&friendID, &b.NetCents); err != nil {
+			return nil, fmt.Errorf("failed to scan friend balance: %w", err)
+		}
+		b.FriendID = domain.UserID(friendID)
+		balances = append(balances, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+	return balances, nil
 }
 
-// completely remove an expense and its associated splits
-func (r *ExpenseRepository) Delete(ctx context.Context, id domain.ExpenseID) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, delErr := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(id)); delErr != nil {
-		return fmt.Errorf("failed to delete splits: %w", delErr)
-	}
-
-	res, err := tx.ExecContext(ctx, "DELETE FROM expenses WHERE id = $1", string(id))
-	if err != nil {
-		return fmt.Errorf("failed to delete expense: %w", err)
-	}
-
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		return domain.ErrExpenseNotFound
-	}
-
-	return tx.Commit()
-}
-
-// fully replaces an existing expense's details and completely rewrites its splits
-func (r *ExpenseRepository) Update(ctx context.Context, expense *domain.Expense) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
+func updateExpense(ctx context.Context, tx *sql.Tx, expense *domain.Expense) error {
 	var dbGroupID interface{}
 	if expense.GroupID() != nil {
 		dbGroupID = string(*expense.GroupID())
 	}
 
-	updateQuery := `
-		UPDATE expenses 
+	res, err := tx.ExecContext(ctx, `
+		UPDATE expenses
 		SET group_id = $1, description = $2, total_cents = $3, payer_id = $4
 		WHERE id = $5
-	`
-	res, err := tx.ExecContext(ctx, updateQuery,
-		dbGroupID,
-		expense.Description(),
-		expense.Total().Int64(),
-		expense.Payer(),
-		string(expense.ID()),
-	)
+	`, dbGroupID, expense.Description(), expense.Total().Int64(), expense.Payer(), string(expense.ID()))
 	if err != nil {
 		return fmt.Errorf("failed to update expense: %w", err)
 	}
-
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
 		return domain.ErrExpenseNotFound
@@ -291,16 +288,61 @@ func (r *ExpenseRepository) Update(ctx context.Context, expense *domain.Expense)
 		return fmt.Errorf("failed to delete old splits during update: %w", delErr)
 	}
 
-	insertSplitQuery := `
-		INSERT INTO splits (expense_id, user_id, amount_cents)
-		VALUES ($1, $2, $3)
-	`
 	for _, split := range expense.Splits() {
-		_, err = tx.ExecContext(ctx, insertSplitQuery, string(expense.ID()), string(split.User), split.Amount.Int64())
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO splits (expense_id, user_id, amount_cents) VALUES ($1, $2, $3)`,
+			string(expense.ID()), string(split.User), split.Amount.Int64(),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to insert new split: %w", err)
 		}
 	}
+	return nil
+}
 
+// Update fully replaces an existing expense's details and rewrites its splits.
+func (r *ExpenseRepository) Update(ctx context.Context, expense *domain.Expense) error {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return updateExpense(ctx, tx, expense)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := updateExpense(ctx, tx, expense); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteExpense(ctx context.Context, tx *sql.Tx, id domain.ExpenseID) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM splits WHERE expense_id = $1", string(id)); err != nil {
+		return fmt.Errorf("failed to delete splits: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM expenses WHERE id = $1", string(id))
+	if err != nil {
+		return fmt.Errorf("failed to delete expense: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return domain.ErrExpenseNotFound
+	}
+	return nil
+}
+
+// Delete completely removes an expense and its associated splits.
+func (r *ExpenseRepository) Delete(ctx context.Context, id domain.ExpenseID) error {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return deleteExpense(ctx, tx, id)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := deleteExpense(ctx, tx, id); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
