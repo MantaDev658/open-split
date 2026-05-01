@@ -67,10 +67,11 @@ func TestExpenseService_AddExpense_CoreMath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			aRepo := &mocks.MockAuditRepo{}
 			eRepo := &mocks.MockExpenseRepo{
 				SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
 			}
-			service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
+			service := NewExpenseService(eRepo, &mocks.MockGroupRepo{}, aRepo)
 
 			err := service.AddExpense(context.Background(), tt.cmd)
 
@@ -89,6 +90,7 @@ func TestExpenseService_AddExpense_CoreMath(t *testing.T) {
 }
 
 func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
+	aRepo := &mocks.MockAuditRepo{}
 	eRepo := &mocks.MockExpenseRepo{
 		SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
 	}
@@ -99,7 +101,7 @@ func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
 				return nil, errors.New("database connection lost")
 			},
 		}
-		service := NewExpenseService(eRepo, gRepo)
+		service := NewExpenseService(eRepo, gRepo, aRepo)
 		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
 
 		err := service.AddExpense(context.Background(), cmd)
@@ -114,7 +116,7 @@ func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
 				return &domain.Group{ID: id, Members: []domain.UserID{"Bob", "Charlie"}}, nil
 			},
 		}
-		service := NewExpenseService(eRepo, gRepo)
+		service := NewExpenseService(eRepo, gRepo, aRepo)
 		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
 
 		err := service.AddExpense(context.Background(), cmd)
@@ -129,7 +131,7 @@ func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
 				return &domain.Group{ID: id, Members: []domain.UserID{"Alice", "Bob"}}, nil
 			},
 		}
-		service := NewExpenseService(eRepo, gRepo)
+		service := NewExpenseService(eRepo, gRepo, aRepo)
 		cmd := CreateExpenseCommand{GroupID: "g1", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 1500}, {UserID: "David", Value: 1500}}}
 
 		err := service.AddExpense(context.Background(), cmd)
@@ -141,12 +143,13 @@ func TestExpenseService_AddExpense_GroupValidation(t *testing.T) {
 
 func TestExpenseService_AddExpense_Infrastructure(t *testing.T) {
 	t.Run("Path 10: Fails if DB Save fails", func(t *testing.T) {
+		aRepo := &mocks.MockAuditRepo{}
 		eRepo := &mocks.MockExpenseRepo{
 			SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
 				return errors.New("insert failed")
 			},
 		}
-		service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
+		service := NewExpenseService(eRepo, &mocks.MockGroupRepo{}, aRepo)
 		cmd := CreateExpenseCommand{TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
 
 		err := service.AddExpense(context.Background(), cmd)
@@ -157,10 +160,11 @@ func TestExpenseService_AddExpense_Infrastructure(t *testing.T) {
 }
 
 func TestExpenseService_SettleUp(t *testing.T) {
+	aRepo := &mocks.MockAuditRepo{}
 	eRepo := &mocks.MockExpenseRepo{
 		SaveFunc: func(ctx context.Context, expense *domain.Expense) error { return nil },
 	}
-	service := NewExpenseService(eRepo, &mocks.MockGroupRepo{})
+	service := NewExpenseService(eRepo, &mocks.MockGroupRepo{}, aRepo)
 
 	t.Run("Fails if payer equals receiver", func(t *testing.T) {
 		cmd := SettleUpCommand{PayerID: "Alice", ReceiverID: "Alice", AmountCents: 2000}

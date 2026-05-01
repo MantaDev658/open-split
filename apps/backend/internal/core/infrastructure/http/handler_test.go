@@ -17,6 +17,7 @@ import (
 )
 
 func TestAPIHandler_GetBalances(t *testing.T) {
+	auditRepo := &mocks.MockAuditRepo{}
 	expenseRepo := &mocks.MockExpenseRepo{ListAllFunc: func(ctx context.Context) ([]*domain.Expense, error) {
 		total, _ := money.New(3000)
 		split, _ := money.New(1500)
@@ -38,9 +39,9 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 		},
 	}
 	groupRepo := &mocks.MockGroupRepo{}
-	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo)
 	userService := application.NewUserService(userRepo, []byte("test-secret"))
-	groupService := application.NewGroupService(groupRepo, expenseRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	req, err := http.NewRequest("GET", "/balances", nil)
@@ -62,7 +63,7 @@ func TestAPIHandler_GetBalances(t *testing.T) {
 }
 
 func TestAPIHandler_Users(t *testing.T) {
-	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
+	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}, &mocks.MockAuditRepo{})
 	uService := application.NewUserService(&mocks.MockUserRepo{
 		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
 		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -73,7 +74,7 @@ func TestAPIHandler_Users(t *testing.T) {
 			return []domain.User{{ID: "Alice", DisplayName: "Alice"}}, nil
 		},
 	}, []byte("test-secret"))
-	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
+	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, &mocks.MockAuditRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("GET /users returns list", func(t *testing.T) {
@@ -125,9 +126,9 @@ func TestAPIHandler_Auth(t *testing.T) {
 	}, []byte("test-secret"))
 
 	handler := NewAPIHandler(
-		application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}),
+		application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}, &mocks.MockAuditRepo{}),
 		uService,
-		application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}),
+		application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, &mocks.MockAuditRepo{}),
 	)
 
 	t.Run("POST /auth/register creates user", func(t *testing.T) {
@@ -159,7 +160,7 @@ func TestAPIHandler_Auth(t *testing.T) {
 }
 
 func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
-	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{})
+	eService := application.NewExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}, &mocks.MockAuditRepo{})
 	uService := application.NewUserService(&mocks.MockUserRepo{
 		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
 		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -167,7 +168,7 @@ func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
 		},
 	}, []byte("test-secret"))
-	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{})
+	gService := application.NewGroupService(&mocks.MockGroupRepo{}, &mocks.MockExpenseRepo{}, &mocks.MockAuditRepo{})
 	handler := NewAPIHandler(eService, uService, gService)
 
 	t.Run("GET /balances filters by group_id", func(t *testing.T) {
@@ -183,21 +184,38 @@ func TestAPIHandler_ExpensesGroupFiltering(t *testing.T) {
 }
 
 func TestAPIHandler_Expenses(t *testing.T) {
-	expenseRepo := &mocks.MockExpenseRepo{ListAllFunc: func(ctx context.Context) ([]*domain.Expense, error) {
-		total, _ := money.New(3000)
-		split, _ := money.New(1500)
-		exp, _ := domain.NewExpense(
-			domain.ExpenseID("test-id"),
-			nil,
-			"Test Dinner",
-			total,
-			"Alice",
-			[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}},
-		)
-		return []*domain.Expense{exp}, nil
-	}}
+	auditRepo := &mocks.MockAuditRepo{}
+	expenseRepo := &mocks.MockExpenseRepo{
+		ListAllFunc: func(ctx context.Context) ([]*domain.Expense, error) {
+			total, _ := money.New(3000)
+			split, _ := money.New(1500)
+			exp, _ := domain.NewExpense(
+				domain.ExpenseID("test-id"),
+				nil,
+				"Test Dinner",
+				total,
+				"Alice",
+				[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}},
+			)
+			return []*domain.Expense{exp}, nil
+		},
+		GetByIDFunc: func(ctx context.Context, id domain.ExpenseID) (*domain.Expense, error) {
+			total, _ := money.New(3000)
+			splitAmt, _ := money.New(3000)
+			exp, err := domain.NewExpense(id, nil, "Test", total, "Alice", []domain.Split{
+				{User: "Alice", Amount: splitAmt},
+			})
+			if err != nil {
+				panic("invalid mock setup: " + err.Error())
+			}
+			return exp, nil
+		},
+		DeleteFunc: func(ctx context.Context, id domain.ExpenseID) error {
+			return nil
+		}}
+
 	groupRepo := &mocks.MockGroupRepo{}
-	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo)
 	userService := application.NewUserService(&mocks.MockUserRepo{
 		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
 		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -205,7 +223,7 @@ func TestAPIHandler_Expenses(t *testing.T) {
 			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
 		},
 	}, []byte("test-secret"))
-	groupService := application.NewGroupService(groupRepo, expenseRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo)
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	t.Run("GET /expenses returns list", func(t *testing.T) {
@@ -278,12 +296,13 @@ func TestAPIHandler_Expenses(t *testing.T) {
 }
 
 func TestAPIHandler_CreateSettlement(t *testing.T) {
+	auditRepo := &mocks.MockAuditRepo{}
 	expenseRepo := &mocks.MockExpenseRepo{
 		SaveFunc: func(ctx context.Context, expense *domain.Expense) error {
 			return nil
 		},
 	}
-	expenseService := application.NewExpenseService(expenseRepo, &mocks.MockGroupRepo{})
+	expenseService := application.NewExpenseService(expenseRepo, &mocks.MockGroupRepo{}, auditRepo)
 	userService := application.NewUserService(&mocks.MockUserRepo{
 		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
 		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -291,7 +310,7 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
 		},
 	}, []byte("test-secret"))
-	groupService := application.NewGroupService(&mocks.MockGroupRepo{}, expenseRepo)
+	groupService := application.NewGroupService(&mocks.MockGroupRepo{}, expenseRepo, auditRepo)
 
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
@@ -329,6 +348,7 @@ func TestAPIHandler_CreateSettlement(t *testing.T) {
 }
 
 func TestAPIHandler_GetFriendBalances(t *testing.T) {
+	auditRepo := &mocks.MockAuditRepo{}
 	eRepo := &mocks.MockExpenseRepo{
 		ListNonGroupExpensesByUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Expense, error) {
 			total, _ := money.New(2000)
@@ -348,9 +368,9 @@ func TestAPIHandler_GetFriendBalances(t *testing.T) {
 	}, []byte("test-secret"))
 
 	handler := NewAPIHandler(
-		application.NewExpenseService(eRepo, &mocks.MockGroupRepo{}),
+		application.NewExpenseService(eRepo, &mocks.MockGroupRepo{}, auditRepo),
 		userService,
-		application.NewGroupService(&mocks.MockGroupRepo{}, eRepo),
+		application.NewGroupService(&mocks.MockGroupRepo{}, eRepo, auditRepo),
 	)
 
 	t.Run("GET /friends/{user_id}/balances succeeds", func(t *testing.T) {
@@ -372,13 +392,39 @@ func TestAPIHandler_GetFriendBalances(t *testing.T) {
 }
 
 func TestAPIHandler_Groups(t *testing.T) {
-	expenseRepo := &mocks.MockExpenseRepo{}
-	groupRepo := &mocks.MockGroupRepo{ListForUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Group, error) {
-		return []*domain.Group{
-			{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}},
-		}, nil
-	}}
-	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	auditRepo := &mocks.MockAuditRepo{
+		SaveFunc: func(ctx context.Context, log domain.AuditLog) error { return nil },
+	}
+
+	expenseRepo := &mocks.MockExpenseRepo{
+		ListByGroupFunc: func(ctx context.Context, groupID domain.GroupID) ([]*domain.Expense, error) {
+			return []*domain.Expense{}, nil
+		},
+	}
+
+	groupRepo := &mocks.MockGroupRepo{
+		ListForUserFunc: func(ctx context.Context, userID domain.UserID) ([]*domain.Group, error) {
+			return []*domain.Group{
+				{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}},
+			}, nil
+		},
+		GetByIDFunc: func(ctx context.Context, id domain.GroupID) (*domain.Group, error) {
+			return &domain.Group{ID: "g1", Name: "Ski Trip 2026", Members: []domain.UserID{"Alice"}}, nil
+		},
+		UpdateNameFunc: func(ctx context.Context, id domain.GroupID, newName string) error {
+			return nil
+		},
+		DeleteFunc: func(ctx context.Context, id domain.GroupID) error {
+			return nil
+		},
+		RemoveMemberFunc: func(ctx context.Context, groupID domain.GroupID, userID domain.UserID) error {
+			return nil
+		},
+		SaveFunc: func(ctx context.Context, group *domain.Group) error {
+			return nil
+		},
+	}
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo)
 	userService := application.NewUserService(&mocks.MockUserRepo{
 		SaveFunc: func(ctx context.Context, user domain.User) error { return nil },
 		GetByIDFunc: func(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -386,14 +432,18 @@ func TestAPIHandler_Groups(t *testing.T) {
 			return &domain.User{ID: "Alice", IsActive: true, PasswordHash: string(hash)}, nil
 		},
 	}, []byte("test-secret"))
-	groupService := application.NewGroupService(groupRepo, expenseRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo)
+
 	handler := NewAPIHandler(expenseService, userService, groupService)
 
 	t.Run("POST /groups creates a group", func(t *testing.T) {
 		body, _ := json.Marshal(application.CreateGroupCommand{Name: "Ski Trip 2026", Creator: "Alice"})
 		req := httptest.NewRequest("POST", "/groups", bytes.NewBuffer(body))
-		rr := httptest.NewRecorder()
 
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
+
+		rr := httptest.NewRecorder()
 		handler.CreateGroup(rr, req)
 
 		if rr.Code != http.StatusCreated {
@@ -407,6 +457,9 @@ func TestAPIHandler_Groups(t *testing.T) {
 		req := httptest.NewRequest("POST", "/groups/g1/members", bytes.NewBuffer(body))
 
 		req.SetPathValue("id", "g1")
+
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
 
 		rr := httptest.NewRecorder()
 		handler.AddGroupMember(rr, req)
@@ -434,8 +487,11 @@ func TestAPIHandler_Groups(t *testing.T) {
 		body := []byte(`{"name": "New Trip Name"}`)
 		req := httptest.NewRequest("PUT", "/groups/g1", bytes.NewBuffer(body))
 		req.SetPathValue("id", "g1")
-		rr := httptest.NewRecorder()
 
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
+
+		rr := httptest.NewRecorder()
 		handler.UpdateGroup(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
@@ -445,8 +501,11 @@ func TestAPIHandler_Groups(t *testing.T) {
 	t.Run("DELETE /groups/{id} deletes group", func(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/groups/g1", nil)
 		req.SetPathValue("id", "g1")
-		rr := httptest.NewRecorder()
 
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
+
+		rr := httptest.NewRecorder()
 		handler.DeleteGroup(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
@@ -457,8 +516,11 @@ func TestAPIHandler_Groups(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/groups/g1/members/Bob", nil)
 		req.SetPathValue("id", "g1")
 		req.SetPathValue("user_id", "Bob")
-		rr := httptest.NewRecorder()
 
+		ctx := context.WithValue(req.Context(), UserIDKey, "Alice")
+		req = req.WithContext(ctx)
+
+		rr := httptest.NewRecorder()
 		handler.RemoveGroupMember(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)

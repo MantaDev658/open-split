@@ -36,13 +36,14 @@ func main() {
 	}
 	defer db.Close()
 
+	auditRepo := postgres.NewAuditRepository(db)
 	userRepo := postgres.NewUserRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
 	expenseRepo := postgres.NewExpenseRepository(db)
 
 	userService := application.NewUserService(userRepo, []byte(jwtSecret))
-	groupService := application.NewGroupService(groupRepo, expenseRepo)
-	expenseService := application.NewExpenseService(expenseRepo, groupRepo)
+	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo)
+	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo)
 
 	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
 
@@ -66,6 +67,7 @@ func main() {
 	protectedMux.HandleFunc("PUT /groups/{id}", handler.UpdateGroup)
 	protectedMux.HandleFunc("DELETE /groups/{id}", handler.DeleteGroup)
 	protectedMux.HandleFunc("DELETE /groups/{id}/members/{user_id}", handler.RemoveGroupMember)
+	protectedMux.HandleFunc("GET /groups/{id}/activity", handler.GetGroupActivity)
 
 	authMiddleware := openhttp.AuthMiddleware([]byte(jwtSecret))
 	protectedHandler := authMiddleware(protectedMux)

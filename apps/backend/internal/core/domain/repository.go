@@ -2,13 +2,29 @@ package domain
 
 import (
 	"context"
+	"time"
 )
+
+type AuditLog struct {
+	ID        string    `json:"id"`
+	GroupID   string    `json:"group_id"`
+	UserID    string    `json:"user_id"`
+	Action    string    `json:"action"`
+	TargetID  string    `json:"target_id,omitempty"`
+	Details   string    `json:"details,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 type User struct {
 	ID           UserID
 	DisplayName  string
 	IsActive     bool
 	PasswordHash string
+}
+
+type AuditRepository interface {
+	Save(ctx context.Context, log AuditLog) error
+	ListByGroup(ctx context.Context, groupID GroupID) ([]AuditLog, error)
 }
 
 type UserRepository interface {

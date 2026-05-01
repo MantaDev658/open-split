@@ -13,17 +13,18 @@ import (
 func TestGroupService_CRUD(t *testing.T) {
 	gRepo := &mocks.MockGroupRepo{}
 	eRepo := &mocks.MockExpenseRepo{}
-	service := NewGroupService(gRepo, eRepo)
+	aRepo := &mocks.MockAuditRepo{}
+	service := NewGroupService(gRepo, eRepo, aRepo)
 
 	t.Run("UpdateGroup fails on empty name", func(t *testing.T) {
-		err := service.UpdateGroup(context.Background(), "g1", "")
+		err := service.UpdateGroup(context.Background(), "g1", "", "u1")
 		if !errors.Is(err, domain.ErrEmptyGroupName) {
 			t.Errorf("expected ErrEmptyGroupName, got %v", err)
 		}
 	})
 
 	t.Run("DeleteGroup succeeds", func(t *testing.T) {
-		err := service.DeleteGroup(context.Background(), "g1")
+		err := service.DeleteGroup(context.Background(), "g1", "u1")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -31,6 +32,7 @@ func TestGroupService_CRUD(t *testing.T) {
 }
 
 func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
+	aRepo := &mocks.MockAuditRepo{}
 	gRepo := &mocks.MockGroupRepo{}
 
 	t.Run("Fails if user has an outstanding balance", func(t *testing.T) {
@@ -47,10 +49,10 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 			},
 		}
 
-		service := NewGroupService(gRepo, eRepo)
+		service := NewGroupService(gRepo, eRepo, aRepo)
 
 		// UserB owes $15.00, they should NOT be allowed to leave.
-		err := service.RemoveMember(context.Background(), "g1", "UserB")
+		err := service.RemoveMember(context.Background(), "g1", "UserB", "a1")
 		if !errors.Is(err, domain.ErrOutstandingBalance) {
 			t.Errorf("expected ErrOutstandingBalance, got %v", err)
 		}
@@ -59,9 +61,9 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 	t.Run("Succeeds if user balance is exactly zero", func(t *testing.T) {
 		// Mock an empty ledger (no expenses = $0.00 balance)
 		eRepo := &mocks.MockExpenseRepo{}
-		service := NewGroupService(gRepo, eRepo)
+		service := NewGroupService(gRepo, eRepo, aRepo)
 
-		err := service.RemoveMember(context.Background(), "g1", "UserC")
+		err := service.RemoveMember(context.Background(), "g1", "UserC", "a1")
 		if err != nil {
 			t.Errorf("expected success, got: %v", err)
 		}

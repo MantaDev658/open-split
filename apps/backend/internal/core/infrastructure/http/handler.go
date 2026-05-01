@@ -159,7 +159,6 @@ func (h *APIHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 
 	cmd.ID = expenseID
 
-	// 4. Pass to the Application Service
 	if err := h.expenseService.UpdateExpense(r.Context(), cmd); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -173,7 +172,13 @@ func (h *APIHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) DeleteExpense(w http.ResponseWriter, r *http.Request) {
 	expenseID := r.PathValue("id")
 
-	if err := h.expenseService.DeleteExpense(r.Context(), expenseID); err != nil {
+	authUserID, err := getAuthUserID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.expenseService.DeleteExpense(r.Context(), expenseID, authUserID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -312,7 +317,13 @@ func (h *APIHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.groupService.AddMemberToGroup(r.Context(), groupID, cmd.UserID); err != nil {
+	authUserID, err := getAuthUserID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.groupService.AddMemberToGroup(r.Context(), groupID, cmd.UserID, authUserID); err != nil {
 		if errors.Is(err, domain.ErrUserAlreadyInGroup) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -343,6 +354,17 @@ func (h *APIHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(groups)
 }
 
+// GET /groups/{id}/activity
+func (h *APIHandler) GetGroupActivity(w http.ResponseWriter, r *http.Request) {
+	logs, err := h.expenseService.GetGroupActivity(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(logs)
+}
+
 // PUT /groups/{id}
 func (h *APIHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	groupID := r.PathValue("id")
@@ -354,7 +376,13 @@ func (h *APIHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.groupService.UpdateGroup(r.Context(), groupID, cmd.Name); err != nil {
+	authUserID, err := getAuthUserID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.groupService.UpdateGroup(r.Context(), groupID, cmd.Name, authUserID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -364,7 +392,14 @@ func (h *APIHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 // DELETE /groups/{id}
 func (h *APIHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	groupID := r.PathValue("id")
-	if err := h.groupService.DeleteGroup(r.Context(), groupID); err != nil {
+
+	authUserID, err := getAuthUserID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.groupService.DeleteGroup(r.Context(), groupID, authUserID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -376,7 +411,13 @@ func (h *APIHandler) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
 	groupID := r.PathValue("id")
 	userID := r.PathValue("user_id")
 
-	if err := h.groupService.RemoveMember(r.Context(), groupID, userID); err != nil {
+	authUserID, err := getAuthUserID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.groupService.RemoveMember(r.Context(), groupID, userID, authUserID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

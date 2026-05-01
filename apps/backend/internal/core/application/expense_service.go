@@ -14,12 +14,14 @@ import (
 type ExpenseService struct {
 	expenseRepo domain.ExpenseRepository
 	groupRepo   domain.GroupRepository
+	auditRepo   domain.AuditRepository
 }
 
-func NewExpenseService(eRepo domain.ExpenseRepository, gRepo domain.GroupRepository) *ExpenseService {
+func NewExpenseService(eRepo domain.ExpenseRepository, gRepo domain.GroupRepository, aRepo domain.AuditRepository) *ExpenseService {
 	return &ExpenseService{
 		expenseRepo: eRepo,
 		groupRepo:   gRepo,
+		auditRepo:   aRepo,
 	}
 }
 
@@ -29,12 +31,13 @@ type SplitDetail struct {
 }
 
 type CreateExpenseCommand struct {
-	GroupID     string        `json:"group_id,omitempty"`
-	Description string        `json:"description"`
-	TotalCents  int64         `json:"total_cents"`
-	Payer       string        `json:"payer"`
-	SplitType   string        `json:"split_type"`
-	Splits      []SplitDetail `json:"splits"`
+	GroupID             string        `json:"group_id,omitempty"`
+	Description         string        `json:"description"`
+	TotalCents          int64         `json:"total_cents"`
+	Payer               string        `json:"payer"`
+	SplitType           string        `json:"split_type"`
+	Splits              []SplitDetail `json:"splits"`
+	AuditActionOverride string        `json:"-"`
 }
 
 type UpdateExpenseCommand struct {
@@ -110,6 +113,17 @@ func (s *ExpenseService) AddExpense(ctx context.Context, cmd CreateExpenseComman
 		return fmt.Errorf("infrastructure failure: %w", err)
 	}
 
+	if cmd.GroupID != "" {
+		actionType := "CREATED_EXPENSE"
+		if cmd.AuditActionOverride != "" {
+			actionType = cmd.AuditActionOverride
+		}
+
+		_ = s.auditRepo.Save(ctx, domain.AuditLog{
+			ID: uuid.NewString(), GroupID: cmd.GroupID, UserID: cmd.Payer, Action: actionType, TargetID: string(expense.ID()), Details: cmd.Description,
+		})
+	}
+
 	return nil
 }
 
@@ -162,6 +176,10 @@ func (s *ExpenseService) GetFriendBalances(ctx context.Context, userID string) (
 	return userDebts, nil
 }
 
+func (s *ExpenseService) GetGroupActivity(ctx context.Context, groupID string) ([]domain.AuditLog, error) {
+	return s.auditRepo.ListByGroup(ctx, domain.GroupID(groupID))
+}
+
 func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCommand) error {
 	expense, err := s.buildAndValidateExpense(ctx, cmd.ID, cmd.GroupID, cmd.Description, cmd.TotalCents, cmd.Payer, cmd.SplitType, cmd.Splits)
 	if err != nil {
@@ -171,16 +189,48 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, cmd UpdateExpenseCom
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	return s.expenseRepo.Update(dbCtx, expense)
+	if err := s.expenseRepo.Update(dbCtx, expense); err != nil {
+		return fmt.Errorf("infrastructure failure: %w", err)
+	}
+
+	if cmd.GroupID != "" {
+		_ = s.auditRepo.Save(ctx, domain.AuditLog{
+			ID:       uuid.NewString(),
+			GroupID:  cmd.GroupID,
+			UserID:   cmd.Payer,
+			Action:   "UPDATED_EXPENSE",
+			TargetID: string(expense.ID()),
+			Details:  "Updated: " + cmd.Description,
+		})
+	}
+
+	return nil
 }
 
-func (s *ExpenseService) DeleteExpense(ctx context.Context, id string) error {
+func (s *ExpenseService) DeleteExpense(ctx context.Context, id string, userID string) error {
+	expense, err := s.expenseRepo.GetByID(ctx, domain.ExpenseID(id))
+	if err != nil {
+		return err
+	}
+
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if err := s.expenseRepo.Delete(dbCtx, domain.ExpenseID(id)); err != nil {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
+
+	if expense.GroupID() != nil {
+		_ = s.auditRepo.Save(ctx, domain.AuditLog{
+			ID:       uuid.NewString(),
+			GroupID:  string(*expense.GroupID()),
+			UserID:   userID,
+			Action:   "DELETED_EXPENSE",
+			TargetID: id,
+			Details:  "Deleted expense: " + expense.Description(),
+		})
+	}
+
 	return nil
 }
 
@@ -201,6 +251,7 @@ func (s *ExpenseService) SettleUp(ctx context.Context, cmd SettleUpCommand) erro
 		Splits: []SplitDetail{
 			{UserID: cmd.ReceiverID, Value: float64(cmd.AmountCents)},
 		},
+		AuditActionOverride: "SETTLED_DEBT",
 	}
 
 	return s.AddExpense(ctx, createCmd)

@@ -12,12 +12,14 @@ import (
 type GroupService struct {
 	groupRepo   domain.GroupRepository
 	expenseRepo domain.ExpenseRepository
+	auditRepo   domain.AuditRepository
 }
 
-func NewGroupService(groupRepo domain.GroupRepository, expenseRepo domain.ExpenseRepository) *GroupService {
+func NewGroupService(groupRepo domain.GroupRepository, expenseRepo domain.ExpenseRepository, auditRepo domain.AuditRepository) *GroupService {
 	return &GroupService{
 		groupRepo:   groupRepo,
 		expenseRepo: expenseRepo,
+		auditRepo:   auditRepo,
 	}
 }
 
@@ -36,6 +38,15 @@ func (s *GroupService) CreateGroup(ctx context.Context, cmd CreateGroupCommand) 
 	if err := s.groupRepo.Save(ctx, group); err != nil {
 		return "", fmt.Errorf("failed to save group: %w", err)
 	}
+
+	_ = s.auditRepo.Save(ctx, domain.AuditLog{
+		ID:      uuid.NewString(),
+		GroupID: string(group.ID),
+		UserID:  string(domain.UserID(cmd.Creator)),
+		Action:  "CREATED_GROUP",
+		Details: "Created group: " + group.Name,
+	})
+
 	return string(id), nil
 }
 
@@ -43,7 +54,7 @@ func (s *GroupService) ListGroupsForUser(ctx context.Context, userID string) ([]
 	return s.groupRepo.ListForUser(ctx, domain.UserID(userID))
 }
 
-func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, userID string) error {
+func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, userID string, actorID string) error {
 	gID := domain.GroupID(groupID)
 	uID := domain.UserID(userID)
 
@@ -60,21 +71,54 @@ func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, use
 		return fmt.Errorf("failed to save group member: %w", err)
 	}
 
+	_ = s.auditRepo.Save(ctx, domain.AuditLog{
+		ID:       uuid.NewString(),
+		GroupID:  groupID,
+		UserID:   actorID,
+		Action:   "ADDED_MEMBER",
+		TargetID: userID,
+	})
+
 	return nil
 }
 
-func (s *GroupService) UpdateGroup(ctx context.Context, id string, name string) error {
+func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, name string, actorID string) error {
 	if name == "" {
 		return domain.ErrEmptyGroupName
 	}
-	return s.groupRepo.UpdateName(ctx, domain.GroupID(id), name)
+
+	if err := s.groupRepo.UpdateName(ctx, domain.GroupID(groupID), name); err != nil {
+		return fmt.Errorf("failed to update group name: %w", err)
+	}
+
+	_ = s.auditRepo.Save(ctx, domain.AuditLog{
+		ID:      uuid.NewString(),
+		GroupID: groupID,
+		UserID:  actorID,
+		Action:  "RENAMED_GROUP",
+		Details: "Renamed to " + name,
+	})
+
+	return nil
 }
 
-func (s *GroupService) DeleteGroup(ctx context.Context, id string) error {
-	return s.groupRepo.Delete(ctx, domain.GroupID(id))
+func (s *GroupService) DeleteGroup(ctx context.Context, groupID string, userID string) error {
+	if err := s.groupRepo.Delete(ctx, domain.GroupID(groupID)); err != nil {
+		return fmt.Errorf("failed to delete group: %w", err)
+	}
+
+	_ = s.auditRepo.Save(ctx, domain.AuditLog{
+		ID:       uuid.NewString(),
+		GroupID:  groupID,
+		UserID:   userID,
+		Action:   "DELETED_GROUP",
+		TargetID: groupID,
+	})
+
+	return nil
 }
 
-func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID string) error {
+func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID string, actorID string) error {
 	gID := domain.GroupID(groupID)
 	uID := domain.UserID(userID)
 
@@ -90,5 +134,17 @@ func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID 
 		return fmt.Errorf("%w: $%.2f", domain.ErrOutstandingBalance, dollars)
 	}
 
-	return s.groupRepo.RemoveMember(ctx, gID, uID)
+	if err := s.groupRepo.RemoveMember(ctx, gID, uID); err != nil {
+		return fmt.Errorf("failed to remove group member: %w", err)
+	}
+
+	_ = s.auditRepo.Save(ctx, domain.AuditLog{
+		ID:       uuid.NewString(),
+		GroupID:  groupID,
+		UserID:   actorID,
+		Action:   "REMOVED_GROUP_MEMBER",
+		TargetID: userID,
+	})
+
+	return nil
 }
