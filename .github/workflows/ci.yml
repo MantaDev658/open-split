@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend/go.mod
+          cache-dependency-path: |
+            apps/backend/go.sum
+            libs/shared/go.sum
+
+      - name: Install golangci-lint
+        run: make setup-lint
+
+      - name: Build and lint
+        run: make check
+
+      - name: Unit tests
+        run: make test-unit
+
+      - name: Race detector
+        run: make test-race

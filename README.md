@@ -1,123 +1,224 @@
-# Open Split 💸
+# Open Split
 
-Open Split is a fast,lightweight, and privacy-respecting CLI utility for calculating group expenses and simplifying debts. It is a local-first, open-source alternative to Splitwise.
-
-## 🚀 Features
-
-* **Debt Simplification:** Uses a greedy algorithm to minimize the total number of transactions needed to settle a group's debts by default.
-* **Penny-Perfect Math:** Custom `money` engine ensures that $10.00 split 3 ways never results in missing or fabricated cents.
-* **Complex Split Strategies:** Supports splitting by Even distributions, Exact amounts, Percentages, and fractional Shares.
+A self-hosted, open-source expense splitting API. Track shared costs, manage groups, simplify debts, and settle up — without sending your data to a third party.
 
 ---
 
-## 📂 Project Structure
+## Features
 
-Open Split is structured as a Go Workspace (`go.work`) monorepo to separate core domain libraries from the application logic.
+- **JWT authentication** — stateless auth via signed tokens; no session storage
+- **Group management** — create groups, add/remove members with outstanding-balance guards
+- **Four split strategies** — even, exact, percentage, and proportional shares
+- **Penny-perfect math** — a custom `money` engine distributes remainders deterministically; no floating-point drift
+- **Debt simplification** — greedy algorithm reduces N bilateral debts to the minimum number of transactions
+- **Audit log** — every mutation (expense created/updated/deleted, member added/removed, debt settled) is recorded per group
+- **Cursor-based pagination** — all list endpoints are paginated with `?limit` and `?cursor`
+- **CSV CLI** — standalone binary for offline expense parsing from a ledger file
 
-## 🛠️ Quick Start & Installation
-### Prerequisites
+---
 
-* Go 1.21+
-* `make` (Standard on macOS/Linux)
+## Architecture
 
-### 1. Clone & Build
+Go workspace monorepo. Two modules, two binaries.
 
-```Bash
+```
+open-split/
+├── apps/backend/
+│   ├── cmd/api/            # REST API server (main binary)
+│   ├── cmd/cli/            # CSV expense parser (standalone binary)
+│   └── internal/core/
+│       ├── domain/         # Entities, allocation logic, error types
+│       ├── application/    # Use-case services (ExpenseService, GroupService, UserService)
+│       └── infrastructure/
+│           ├── http/       # Handlers split by service, auth middleware
+│           ├── postgres/   # Repository implementations, migrations, partition manager
+│           └── csv/        # CSV ledger parser
+├── libs/shared/money/      # Zero-dependency money type (int64 cents)
+└── go.work                 # Go workspace linking both modules
+```
+
+Domain layer has no external dependencies. Infrastructure depends on domain, never the reverse.
+
+---
+
+## Prerequisites
+
+- Go 1.21+
+- Docker (for the local PostgreSQL instance)
+- `make`
+- `golang-migrate` for schema migrations: `make setup-migrate`
+- `golangci-lint` for linting: `make setup-lint`
+
+---
+
+## Getting Started
+
+```bash
 git clone https://github.com/yourusername/opensplit.git
 cd opensplit
 
-# Sync the Go workspace and install linter tools
-make sync
-make setup
+# Start postgres and apply migrations
+make db-up
+make migrate-up
 
-# Compile the single binary
-make build
+# Run the API (listens on :8080)
+make run-api
 ```
 
-### 2. Run the App
+Set the following environment variables (or create a `.env` file):
 
-```Bash
-./bin/opensplit-cli -file=test_expenses.csv
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | Secret used to sign and verify JWT tokens |
+
+Example `.env`:
+```
+DATABASE_URL=postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable
+JWT_SECRET=change-me-in-production
 ```
 
-## 📄 The CSV Ledger Format
-Open Split reads expenses from a structured CSV file. The parser is strict to ensure mathematical accuracy.
+---
 
-**Important**: All currency amounts must be entered in **cents (pennies)** to prevent floating-point errors. For example, $50.00 must be written as `5000`.
+## API Reference
 
-### Column Schema
-Every row must contain a minimum of 7 columns:
+All endpoints except `/auth/*` require a `Bearer` token in the `Authorization` header.
 
-| Col | Name | Example | Description |
-| :--- | :--- | :--- | :--- |
-| **1** | **Date** | `2026-04-01` | The date of the transaction (YYYY-MM-DD). |
-| **2** | **Description** | `Dinner` | A label for the expense. |
-| **3** | **Category** | `Food` | A category for future analytics. |
-| **4** | **TotalCents** | `9000` | The total cost in pennies (e.g., 9000 = $90.00). |
-| **5** | **Payer** | `Alice` | The name of the user who paid the bill. |
-| **6** | **Strategy** | `EVEN` | The split method (`EVEN`, `EXACT`, `PERCENT`, `SHARES`). |
-| **7+** | **Participants** | `Alice, Bob` | Dynamic columns based on the chosen strategy. |
+Currency amounts are always in **cents** (integer). `$10.00` = `10000`.
 
-### Splitting Strategies
+Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC3339Nano timestamp>`. Responses include `"next_cursor"` when more pages exist.
 
-* `EVEN`: Splits the total evenly among all listed participants.
-    * Example: `...,EVEN,Alice,Bob,Charlie` (Splits evenly between the three).
+### Auth
 
-* `EXACT`: Define the exact amount (in cents) each person owes. The sum must equal `TotalCents`.
+| Method | Path | Description |
+|---|---|---|
+| POST | `/auth/register` | Create a user account |
+| POST | `/auth/login` | Authenticate and receive a JWT |
 
-    * Syntax: `Name:Cents`
+### Expenses
 
-    * Example: `...,EXACT,Alice:2000,Bob:8000` (Alice owes $20, Bob owes $80).
+| Method | Path | Description |
+|---|---|---|
+| POST | `/expenses` | Create an expense; payer is set from the JWT |
+| GET | `/expenses` | List expenses; filter by `?group_id=` |
+| PUT | `/expenses/{id}` | Update an expense |
+| DELETE | `/expenses/{id}` | Delete an expense |
 
-* `PERCENT`: Calculates the split based on relative percentages.
+### Balances & Settlements
 
-    * Syntax: `Name:Percentage`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/balances` | Net balances and suggested settlements; filter by `?group_id=` |
+| GET | `/friends/{user_id}/balances` | Bilateral friend balances for the authenticated user |
+| POST | `/settlements` | Record a debt payment between two users |
 
-    * Example: `...,PERCENT,Alice:25,Bob:75` (Bob pays 75% of the total).
+### Users
 
-* `SHARES`: Splits cost based on proportional parts (e.g., "Alice had 2 drinks, Bob had 1").
+| Method | Path | Description |
+|---|---|---|
+| GET | `/users` | List all users |
+| PUT | `/users/{id}` | Update display name |
+| DELETE | `/users/{id}` | Soft-delete a user |
 
-    * Syntax: `Name:Shares`
+### Groups
 
-    * Example: `...,SHARES,Alice:2,Bob:1` (Alice pays 2/3, Bob pays 1/3).
+| Method | Path | Description |
+|---|---|---|
+| POST | `/groups` | Create a group; creator is set from the JWT |
+| GET | `/groups` | List groups for the authenticated user |
+| PUT | `/groups/{id}` | Rename a group |
+| DELETE | `/groups/{id}` | Delete a group |
+| POST | `/groups/{id}/members` | Add a member |
+| DELETE | `/groups/{id}/members/{user_id}` | Remove a member (blocked if outstanding balance) |
+| GET | `/groups/{id}/activity` | Paginated audit log for a group |
 
-## 🧪 Example Usage
-### 1. Create a file named `my_trip.csv`:
+### Request bodies
 
-```Code snippet
+**POST /auth/register**
+```json
+{ "id": "alice", "display_name": "Alice", "password": "..." }
+```
+
+**POST /expenses**
+```json
+{
+  "group_id": "optional-group-uuid",
+  "description": "Dinner",
+  "total_cents": 9000,
+  "split_type": "EVEN",
+  "splits": [
+    { "user_id": "alice" },
+    { "user_id": "bob" }
+  ]
+}
+```
+
+**POST /settlements**
+```json
+{ "receiver_id": "bob", "amount_cents": 5000, "group_id": "optional" }
+```
+
+---
+
+## Split Strategies
+
+| Strategy | `split_type` | `splits` format | Example |
+|---|---|---|---|
+| Even | `EVEN` | `[{"user_id": "alice"}, ...]` | Total divided equally; remainders go to first participant |
+| Exact | `EXACT` | `[{"user_id": "alice", "value": 2000}, ...]` | Values must sum to `total_cents` |
+| Percentage | `PERCENT` | `[{"user_id": "alice", "value": 25}, ...]` | Values must sum to 100 |
+| Shares | `SHARES` | `[{"user_id": "alice", "value": 2}, ...]` | Proportional to share counts |
+
+---
+
+## CLI Tool
+
+Parse a CSV ledger file and print settle-up instructions:
+
+```bash
+make run-cli
+# or directly:
+cd apps/backend && go run cmd/cli/main.go -file=../../test_expenses.csv
+```
+
+CSV format — one expense per row, minimum 7 columns:
+
+```
+Date,Description,Category,TotalCents,Payer,Strategy,Participants...
 2026-04-01,Dinner,Food,9000,Alice,EVEN,Alice,Bob,Charlie
-2026-04-02,Groceries,Food,10000,Bob,EXACT,Alice:2000,Bob:8000
-2026-04-03,Hotel,Lodging,30000,Charlie,PERCENT,Alice:25,Bob:25,Charlie:50
-2026-04-04,Drinks,Entertainment,1000,Alice,SHARES,Alice:1,Bob:1,Charlie:1
+2026-04-02,Hotel,Lodging,30000,Charlie,EXACT,Alice:10000,Bob:10000,Charlie:10000
 ```
 
-### 2. Run the CLI:
+Participant columns follow strategy syntax: `Name` for EVEN, `Name:Value` for EXACT/PERCENT/SHARES.
 
-```Bash
-./bin/opensplit-cli -file=my_trip.csv
+---
+
+## Development
+
+```
+make check          # build + lint (run before every commit)
+make test-unit      # unit tests with coverage
+make test-race      # race detector
+make test-fuzz      # 30s fuzz run on domain package
+make test-integration  # postgres integration tests (requires TEST_DB_URL)
+make test           # all of the above (spins up Docker)
+make migrate-up     # apply pending migrations
+make migrate-down   # roll back last migration
 ```
 
-### 3. Expected Output:
+The linter (`golangci-lint`) enforces doc comments on all exported identifiers, error wrapping, and a no-shadow rule. Run `make check` before opening a PR.
 
-```Plaintext
-📂 Loading expenses from: my_trip.csv
+---
 
---- 💸 Open Split: Settle Up Instructions ---
-➡️  Bob        pays Charlie    $  23.33
-➡️  Alice      pays Charlie    $  21.67
-➡️  Alice      pays Bob        $  20.00
--------------------------------------------
-```
+## Contributing
 
-To see raw balances without the simplification algorithm, use the `--no-simplify` flag.
+1. Fork the repo and create a branch from `main`.
+2. Make your changes. `make check` must pass clean.
+3. Include tests for any new behaviour.
+4. Open a pull request — describe what changed and why.
 
-## 💻 Development & Contributing
-Open Split uses strict formatting and linting rules enforced by a Git pre-commit hook to maintain high code quality.
+---
 
-### Useful Make Commands:
+## License
 
-* `make test`: Runs the test suite across all modules (Domain, Logic, Parser).
-
-* `make lint`: Runs golangci-lint to check for code smells and complexity.
-
-* `make all`: Full CI check (Formatting -> Linting -> Race Condition Testing).
+[AGPL-3.0](LICENSE)

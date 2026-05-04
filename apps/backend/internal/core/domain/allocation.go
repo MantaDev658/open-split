@@ -4,6 +4,7 @@ import (
 	"opensplit/libs/shared/money"
 )
 
+// AllocationType identifies which split algorithm to apply.
 type AllocationType string
 
 const (
@@ -13,11 +14,13 @@ const (
 	AllocationTypeShares     AllocationType = "SHARES"
 )
 
+// AllocationInput is the per-participant data passed to Allocate.
 type AllocationInput struct {
 	UserID UserID
 	Value  float64
 }
 
+// Allocate distributes totalCents among participants using the given strategy.
 func Allocate(strategy AllocationType, totalCents int64, participants []AllocationInput) ([]Split, error) {
 	if len(participants) == 0 {
 		return nil, ErrParticipantNotFound

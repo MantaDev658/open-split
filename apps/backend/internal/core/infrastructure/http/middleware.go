@@ -10,8 +10,10 @@ import (
 
 type contextKey string
 
+// UserIDKey is the context key under which AuthMiddleware stores the authenticated user's ID.
 const UserIDKey contextKey = "user_id"
 
+// AuthMiddleware validates the Bearer JWT on each request and injects the user ID into the context.
 func AuthMiddleware(secret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +25,7 @@ func AuthMiddleware(secret []byte) func(http.Handler) http.Handler {
 
 			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				return secret, nil // Use injected secret
+				return secret, nil
 			})
 
 			if err != nil || !token.Valid {

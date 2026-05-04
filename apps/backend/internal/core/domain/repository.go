@@ -24,6 +24,7 @@ type FriendBalance struct {
 	NetCents int64
 }
 
+// AuditAction is the event type recorded in an audit log entry.
 type AuditAction string
 
 const (
@@ -38,6 +39,7 @@ const (
 	AuditActionRemovedMember  AuditAction = "REMOVED_GROUP_MEMBER"
 )
 
+// AuditLog is an immutable record of a mutation within a group.
 type AuditLog struct {
 	ID        string      `json:"id"`
 	GroupID   string      `json:"group_id"`
@@ -48,6 +50,7 @@ type AuditLog struct {
 	CreatedAt time.Time   `json:"created_at"`
 }
 
+// User is a registered account.
 type User struct {
 	ID           UserID
 	DisplayName  string

@@ -1,0 +1,88 @@
+package http
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// POST /auth/register
+func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	cmd, err := decodeJSON[struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		Password    string `json:"password"`
+	}](w, r)
+	if err != nil {
+		return
+	}
+
+	if err := h.userService.RegisterUser(r.Context(), cmd.ID, cmd.DisplayName, cmd.Password); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// POST /auth/login
+func (h *APIHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
+	cmd, err := decodeJSON[struct {
+		ID       string `json:"id"`
+		Password string `json:"password"`
+	}](w, r)
+	if err != nil {
+		return
+	}
+
+	token, err := h.userService.LoginUser(r.Context(), cmd.ID, cmd.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": token}); err != nil {
+		return
+	}
+}
+
+// GET /users
+func (h *APIHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.userService.ListUsers(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(users); err != nil {
+		return
+	}
+}
+
+// PUT /users/{id}
+func (h *APIHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+
+	cmd, err := decodeJSON[struct {
+		DisplayName string `json:"display_name"`
+	}](w, r)
+	if err != nil {
+		return
+	}
+
+	if err := h.userService.UpdateUser(r.Context(), userID, cmd.DisplayName); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// DELETE /users/{id}
+func (h *APIHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	if err := h.userService.DeleteUser(r.Context(), userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

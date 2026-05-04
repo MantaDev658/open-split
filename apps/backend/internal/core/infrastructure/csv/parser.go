@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// ParseExpenses reads a CSV ledger file and returns the validated expenses it contains.
 func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -38,14 +39,11 @@ func ParseExpenses(filePath string) ([]*domain.Expense, error) {
 			return nil, fmt.Errorf("error reading row %d: %w", lineNum, err)
 		}
 
-		// we now require at least 7 columns (Date, Desc, Cat, Total, Payer, Strategy, 1+ Participants)
 		if len(record) < 7 {
 			return nil, fmt.Errorf("row %d has insufficient columns", lineNum)
 		}
 
-		// date := record[0]      // We can pass this to domain later
 		desc := record[1]
-		// category := record[2]  // We can pass this to domain later
 
 		cents, err := strconv.ParseInt(record[3], 10, 64)
 		if err != nil {
