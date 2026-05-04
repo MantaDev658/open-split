@@ -17,80 +17,98 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func main() {
+type config struct {
+	dbURL      string
+	jwtSecret  string
+	corsOrigin string
+	port       string
+}
+
+func loadConfig() config {
 	_ = godotenv.Load()
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+	return config{
+		dbURL:      mustEnv("DATABASE_URL"),
+		jwtSecret:  mustEnv("JWT_SECRET"),
+		corsOrigin: envOr("CORS_ORIGIN", "*"),
+		port:       ":" + envOr("PORT", "8080"),
 	}
+}
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET environment variable is required")
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("%s environment variable is required", key)
 	}
+	return v
+}
 
-	rawDB, err := sql.Open("postgres", dbURL)
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func main() {
+	cfg := loadConfig()
+
+	rawDB, err := sql.Open("postgres", cfg.dbURL)
 	if err != nil {
-		log.Fatalf("Could not connect to DB: %v", err)
+		log.Fatalf("could not open database: %v", err)
 	}
 	defer rawDB.Close()
 
 	db := postgres.NewDB(rawDB)
-
 	auditRepo := postgres.NewAuditRepository(rawDB)
 	userRepo := postgres.NewUserRepository(rawDB)
 	groupRepo := postgres.NewGroupRepository(rawDB)
 	expenseRepo := postgres.NewExpenseRepository(rawDB)
 
-	userService := application.NewUserService(userRepo, []byte(jwtSecret))
+	userService := application.NewUserService(userRepo, []byte(cfg.jwtSecret))
 	groupService := application.NewGroupService(groupRepo, expenseRepo, auditRepo, db)
 	expenseService := application.NewExpenseService(expenseRepo, groupRepo, auditRepo, db)
 
-	handler := openhttp.NewAPIHandler(expenseService, userService, groupService)
+	h := openhttp.NewAPIHandler(expenseService, userService, groupService)
 
-	// Protected Routes (Requires Auth)
-	protectedMux := http.NewServeMux()
-	protectedMux.HandleFunc("POST /expenses", handler.CreateExpense)
-	protectedMux.HandleFunc("GET /expenses", handler.ListExpenses)
-	protectedMux.HandleFunc("GET /balances", handler.GetBalances)
-	protectedMux.HandleFunc("GET /friends/{user_id}/balances", handler.GetFriendBalances)
-	protectedMux.HandleFunc("PUT /expenses/{id}", handler.UpdateExpense)
-	protectedMux.HandleFunc("DELETE /expenses/{id}", handler.DeleteExpense)
-	protectedMux.HandleFunc("POST /settlements", handler.CreateSettlement)
+	protected := http.NewServeMux()
+	protected.HandleFunc("POST /expenses", h.CreateExpense)
+	protected.HandleFunc("GET /expenses", h.ListExpenses)
+	protected.HandleFunc("GET /balances", h.GetBalances)
+	protected.HandleFunc("GET /friends/{user_id}/balances", h.GetFriendBalances)
+	protected.HandleFunc("PUT /expenses/{id}", h.UpdateExpense)
+	protected.HandleFunc("DELETE /expenses/{id}", h.DeleteExpense)
+	protected.HandleFunc("POST /settlements", h.CreateSettlement)
 
-	protectedMux.HandleFunc("GET /users", handler.ListUsers)
-	protectedMux.HandleFunc("PUT /users/{id}", handler.UpdateUser)
-	protectedMux.HandleFunc("DELETE /users/{id}", handler.DeleteUser)
+	protected.HandleFunc("GET /users", h.ListUsers)
+	protected.HandleFunc("PUT /users/{id}", h.UpdateUser)
+	protected.HandleFunc("DELETE /users/{id}", h.DeleteUser)
 
-	protectedMux.HandleFunc("POST /groups", handler.CreateGroup)
-	protectedMux.HandleFunc("POST /groups/{id}/members", handler.AddGroupMember)
-	protectedMux.HandleFunc("GET /groups", handler.ListGroups)
-	protectedMux.HandleFunc("PUT /groups/{id}", handler.UpdateGroup)
-	protectedMux.HandleFunc("DELETE /groups/{id}", handler.DeleteGroup)
-	protectedMux.HandleFunc("DELETE /groups/{id}/members/{user_id}", handler.RemoveGroupMember)
-	protectedMux.HandleFunc("GET /groups/{id}/activity", handler.GetGroupActivity)
+	protected.HandleFunc("POST /groups", h.CreateGroup)
+	protected.HandleFunc("GET /groups", h.ListGroups)
+	protected.HandleFunc("PUT /groups/{id}", h.UpdateGroup)
+	protected.HandleFunc("DELETE /groups/{id}", h.DeleteGroup)
+	protected.HandleFunc("POST /groups/{id}/members", h.AddGroupMember)
+	protected.HandleFunc("DELETE /groups/{id}/members/{user_id}", h.RemoveGroupMember)
+	protected.HandleFunc("GET /groups/{id}/activity", h.GetGroupActivity)
 
-	authMiddleware := openhttp.AuthMiddleware([]byte(jwtSecret))
-	protectedHandler := authMiddleware(protectedMux)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/register", h.RegisterUser)
+	mux.HandleFunc("POST /auth/login", h.LoginUser)
+	mux.Handle("/", openhttp.AuthMiddleware([]byte(cfg.jwtSecret))(protected))
 
-	// Public Routes
-	mainMux := http.NewServeMux()
-	mainMux.HandleFunc("POST /auth/register", handler.RegisterUser)
-	mainMux.HandleFunc("POST /auth/login", handler.LoginUser)
+	handler := openhttp.CORSMiddleware(cfg.corsOrigin)(
+		http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timeout"}`),
+	)
 
-	// Delegate all other routes to the protected handler
-	mainMux.Handle("/", protectedHandler)
-
-	port := ":8080"
-	fmt.Printf("API running on port %s\n", port)
 	server := &http.Server{
-		Addr:              port,
-		Handler:           http.TimeoutHandler(mainMux, 10*time.Second, `{"error":"request timeout"}`),
+		Addr:              cfg.port,
+		Handler:           handler,
 		ReadHeaderTimeout: 3 * time.Second,
 		WriteTimeout:      15 * time.Second,
 	}
+
+	fmt.Printf("API running on %s\n", cfg.port)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Printf("Server crashed: %v", err)
+		log.Printf("server crashed: %v", err)
 	}
 }
