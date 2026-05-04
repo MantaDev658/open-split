@@ -45,9 +45,11 @@ func (r *AuditRepository) ListByGroup(ctx context.Context, groupID domain.GroupI
 	var logs []domain.AuditLog
 	for rows.Next() {
 		var l domain.AuditLog
-		if err := rows.Scan(&l.ID, &l.GroupID, &l.UserID, &l.Action, &l.TargetID, &l.Details, &l.CreatedAt); err != nil {
+		var action string
+		if err := rows.Scan(&l.ID, &l.GroupID, &l.UserID, &action, &l.TargetID, &l.Details, &l.CreatedAt); err != nil {
 			return nil, err
 		}
+		l.Action = domain.AuditAction(action)
 		logs = append(logs, l)
 	}
 	if err := rows.Err(); err != nil {

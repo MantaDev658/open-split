@@ -24,14 +24,28 @@ type FriendBalance struct {
 	NetCents int64
 }
 
+type AuditAction string
+
+const (
+	AuditActionCreatedExpense AuditAction = "CREATED_EXPENSE"
+	AuditActionUpdatedExpense AuditAction = "UPDATED_EXPENSE"
+	AuditActionDeletedExpense AuditAction = "DELETED_EXPENSE"
+	AuditActionSettledDebt    AuditAction = "SETTLED_DEBT"
+	AuditActionCreatedGroup   AuditAction = "CREATED_GROUP"
+	AuditActionAddedMember    AuditAction = "ADDED_MEMBER"
+	AuditActionRenamedGroup   AuditAction = "RENAMED_GROUP"
+	AuditActionDeletedGroup   AuditAction = "DELETED_GROUP"
+	AuditActionRemovedMember  AuditAction = "REMOVED_GROUP_MEMBER"
+)
+
 type AuditLog struct {
-	ID        string    `json:"id"`
-	GroupID   string    `json:"group_id"`
-	UserID    string    `json:"user_id"`
-	Action    string    `json:"action"`
-	TargetID  string    `json:"target_id,omitempty"`
-	Details   string    `json:"details,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string      `json:"id"`
+	GroupID   string      `json:"group_id"`
+	UserID    string      `json:"user_id"`
+	Action    AuditAction `json:"action"`
+	TargetID  string      `json:"target_id,omitempty"`
+	Details   string      `json:"details,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 type User struct {

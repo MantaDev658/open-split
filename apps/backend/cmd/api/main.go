@@ -86,8 +86,9 @@ func main() {
 	fmt.Printf("API running on port %s\n", port)
 	server := &http.Server{
 		Addr:              port,
-		Handler:           mainMux,
+		Handler:           http.TimeoutHandler(mainMux, 10*time.Second, `{"error":"request timeout"}`),
 		ReadHeaderTimeout: 3 * time.Second,
+		WriteTimeout:      15 * time.Second,
 	}
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("Server crashed: %v", err)

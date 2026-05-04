@@ -40,8 +40,8 @@ func TestGroupService_CreateGroup_SavesAuditLog(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{
 		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
 			auditSaved = true
-			if log.Action != "CREATED_GROUP" {
-				t.Errorf("expected action CREATED_GROUP, got %s", log.Action)
+			if log.Action != domain.AuditActionCreatedGroup {
+				t.Errorf("expected action %s, got %s", domain.AuditActionCreatedGroup, log.Action)
 			}
 			return nil
 		},
@@ -63,8 +63,8 @@ func TestGroupService_UpdateGroup_SavesAuditLog(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{
 		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
 			auditSaved = true
-			if log.Action != "RENAMED_GROUP" {
-				t.Errorf("expected action RENAMED_GROUP, got %s", log.Action)
+			if log.Action != domain.AuditActionRenamedGroup {
+				t.Errorf("expected action %s, got %s", domain.AuditActionRenamedGroup, log.Action)
 			}
 			return nil
 		},
@@ -84,8 +84,8 @@ func TestGroupService_DeleteGroup_SavesAuditLog(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{
 		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
 			auditSaved = true
-			if log.Action != "DELETED_GROUP" {
-				t.Errorf("expected action DELETED_GROUP, got %s", log.Action)
+			if log.Action != domain.AuditActionDeletedGroup {
+				t.Errorf("expected action %s, got %s", domain.AuditActionDeletedGroup, log.Action)
 			}
 			return nil
 		},
@@ -105,8 +105,8 @@ func TestGroupService_AddMember_SavesAuditLog(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{
 		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
 			auditSaved = true
-			if log.Action != "ADDED_MEMBER" {
-				t.Errorf("expected action ADDED_MEMBER, got %s", log.Action)
+			if log.Action != domain.AuditActionAddedMember {
+				t.Errorf("expected action %s, got %s", domain.AuditActionAddedMember, log.Action)
 			}
 			return nil
 		},
@@ -131,8 +131,8 @@ func TestGroupService_RemoveMember_SavesAuditLog(t *testing.T) {
 	aRepo := &mocks.MockAuditRepo{
 		SaveFunc: func(ctx context.Context, log domain.AuditLog) error {
 			auditSaved = true
-			if log.Action != "REMOVED_GROUP_MEMBER" {
-				t.Errorf("expected action REMOVED_GROUP_MEMBER, got %s", log.Action)
+			if log.Action != domain.AuditActionRemovedMember {
+				t.Errorf("expected action %s, got %s", domain.AuditActionRemovedMember, log.Action)
 			}
 			return nil
 		},

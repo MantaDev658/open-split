@@ -52,7 +52,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, cmd CreateGroupCommand) 
 			ID:      uuid.NewString(),
 			GroupID: string(group.ID),
 			UserID:  cmd.CreatorID,
-			Action:  "CREATED_GROUP",
+			Action:  domain.AuditActionCreatedGroup,
 			Details: "Created group: " + group.Name,
 		})
 	})
@@ -87,7 +87,7 @@ func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, use
 			ID:       uuid.NewString(),
 			GroupID:  groupID,
 			UserID:   actorID,
-			Action:   "ADDED_MEMBER",
+			Action:   domain.AuditActionAddedMember,
 			TargetID: userID,
 		})
 	})
@@ -106,7 +106,7 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, name str
 			ID:      uuid.NewString(),
 			GroupID: groupID,
 			UserID:  actorID,
-			Action:  "RENAMED_GROUP",
+			Action:  domain.AuditActionRenamedGroup,
 			Details: "Renamed to " + name,
 		})
 	})
@@ -121,7 +121,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, groupID string, userID s
 			ID:       uuid.NewString(),
 			GroupID:  groupID,
 			UserID:   userID,
-			Action:   "DELETED_GROUP",
+			Action:   domain.AuditActionDeletedGroup,
 			TargetID: groupID,
 		})
 	})
@@ -150,7 +150,7 @@ func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID 
 			ID:       uuid.NewString(),
 			GroupID:  groupID,
 			UserID:   actorID,
-			Action:   "REMOVED_GROUP_MEMBER",
+			Action:   domain.AuditActionRemovedMember,
 			TargetID: userID,
 		})
 	})
