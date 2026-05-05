@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--bevel-out:      inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+	--bevel-in:       inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+	--bevel-out-deep: inset -2px -2px 0 #808080, inset 2px 2px 0 #fff,
+	                  inset -4px -4px 0 #404040, inset 4px 4px 0 #dfdfdf;
+}

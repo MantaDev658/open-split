@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: setup-lint lint test test-race fuzz run-cli
+.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build
 
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
@@ -64,6 +64,15 @@ run-api: db-up
 
 run-cli:
 	cd apps/backend && go run cmd/cli/main.go -file=../../test_expenses.csv
+
+frontend-install:
+	cd apps/frontend && bun install
+
+frontend-dev:
+	cd apps/frontend && bun run dev
+
+frontend-build:
+	cd apps/frontend && bun run build
 
 # --- Database & Infrastructure ---
 
