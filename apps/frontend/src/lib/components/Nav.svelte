@@ -1,0 +1,40 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { logout } from '$lib/api/users';
+	import { authStore } from '$lib/stores/auth';
+	import Button from './Button.svelte';
+
+	const links = [
+		{ href: '/', label: 'HOME' },
+		{ href: '/expenses', label: 'EXPENSES' },
+		{ href: '/groups', label: 'GROUPS' },
+		{ href: '/settle', label: 'SETTLE UP' }
+	];
+
+	function handleLogout() {
+		logout();
+		goto('/login');
+	}
+</script>
+
+<nav class="bg-win95 flex items-center gap-2 px-3 py-1" style="box-shadow: var(--bevel-out)">
+	<span class="font-heading font-bold text-win-navy text-sm mr-3 shrink-0">OPEN SPLIT</span>
+
+	{#each links as link}
+		<a
+			href={link.href}
+			class="text-xs font-system font-bold uppercase px-2 py-0.5 shrink-0
+			       {$page.url.pathname === link.href
+				? 'underline text-win-navy'
+				: 'text-black hover:underline'}"
+		>
+			{link.label}
+		</a>
+	{/each}
+
+	<div class="ml-auto flex items-center gap-3 shrink-0">
+		<span class="text-xs font-mono text-win-dark hidden sm:block">{$authStore.userID ?? ''}</span>
+		<Button variant="danger" onclick={handleLogout}>LOGOUT</Button>
+	</div>
+</nav>
