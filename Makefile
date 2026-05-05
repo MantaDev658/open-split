@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build
+.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build frontend-test
 
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
@@ -73,6 +73,9 @@ frontend-dev:
 
 frontend-build:
 	cd apps/frontend && bun run build
+
+frontend-test:
+	cd apps/frontend && bun test
 
 # --- Database & Infrastructure ---
 

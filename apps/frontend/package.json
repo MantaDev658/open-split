@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "svelte-kit sync && vite build --logLevel error",
+    "build": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && vite build --logLevel error",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun test"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.0",
     "@sveltejs/kit": "^2.0.0",
+    "@types/node": "^25.6.0",
     "autoprefixer": "^10.0.0",
     "postcss": "^8.0.0",
     "svelte": "^5.0.0",
