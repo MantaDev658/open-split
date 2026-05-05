@@ -1,6 +1,6 @@
 # Open Split
 
-A self-hosted, open-source expense splitting API. Track shared costs, manage groups, simplify debts, and settle up — without sending your data to a third party.
+A self-hosted, open-source expense splitting app. Track shared costs, manage groups, simplify debts, and settle up — without sending your data to a third party.
 
 ---
 
@@ -11,28 +11,38 @@ A self-hosted, open-source expense splitting API. Track shared costs, manage gro
 - **Four split strategies** — even, exact, percentage, and proportional shares
 - **Penny-perfect math** — a custom `money` engine distributes remainders deterministically; no floating-point drift
 - **Debt simplification** — greedy algorithm reduces N bilateral debts to the minimum number of transactions
-- **Audit log** — every mutation (expense created/updated/deleted, member added/removed, debt settled) is recorded per group
-- **Cursor-based pagination** — all list endpoints are paginated with `?limit` and `?cursor`
+- **Audit log** — every mutation is recorded per group with actor and timestamp
+- **Cursor-based pagination** — all list endpoints paginated with `?limit` and `?cursor`
+- **Retro UI** — Windows 95 design system: beveled borders, navy title bars, tiled desktop background
 - **CSV CLI** — standalone binary for offline expense parsing from a ledger file
 
 ---
 
 ## Architecture
 
-Go workspace monorepo. Two modules, two binaries.
+Go workspace monorepo. Two modules, two binaries, one SvelteKit SPA.
 
 ```
 open-split/
 ├── apps/backend/
-│   ├── cmd/api/            # REST API server (main binary)
+│   ├── cmd/api/            # REST API server
 │   ├── cmd/cli/            # CSV expense parser (standalone binary)
 │   └── internal/core/
 │       ├── domain/         # Entities, allocation logic, error types
-│       ├── application/    # Use-case services (ExpenseService, GroupService, UserService)
+│       ├── application/    # Use-case services
 │       └── infrastructure/
-│           ├── http/       # Handlers split by service, auth middleware
-│           ├── postgres/   # Repository implementations, migrations, partition manager
+│           ├── http/       # Handlers split by service, CORS + auth middleware
+│           ├── postgres/   # Repository implementations, migrations
 │           └── csv/        # CSV ledger parser
+├── apps/frontend/
+│   ├── src/
+│   │   ├── lib/
+│   │   │   ├── api/        # Typed fetch wrappers (expenses, groups, users, settlements)
+│   │   │   ├── components/ # Win95 component library (Window, Button, Input, ...)
+│   │   │   └── stores/     # Auth store (localStorage), toast notifications
+│   │   └── routes/         # SvelteKit file-based routing
+│   ├── svelte.config.js    # adapter-static — outputs plain static files
+│   └── vite.config.ts      # /api proxy for local dev
 ├── libs/shared/money/      # Zero-dependency money type (int64 cents)
 └── go.work                 # Go workspace linking both modules
 ```
@@ -43,11 +53,15 @@ Domain layer has no external dependencies. Infrastructure depends on domain, nev
 
 ## Prerequisites
 
+**Backend**
 - Go 1.21+
 - Docker (for the local PostgreSQL instance)
 - `make`
-- `golang-migrate` for schema migrations: `make setup-migrate`
-- `golangci-lint` for linting: `make setup-lint`
+- `golang-migrate`: `make setup-migrate`
+- `golangci-lint`: `make setup-lint`
+
+**Frontend**
+- [Bun](https://bun.sh) — `curl -fsSL https://bun.sh/install | bash`
 
 ---
 
@@ -57,36 +71,44 @@ Domain layer has no external dependencies. Infrastructure depends on domain, nev
 git clone https://github.com/yourusername/opensplit.git
 cd opensplit
 
-# Start postgres and apply migrations
-make db-up
-make migrate-up
+# Install frontend dependencies
+make frontend-install
 
-# Run the API (listens on :8080)
-make run-api
+# Start everything (Postgres + migrations + API + frontend dev server)
+make dev
 ```
 
-Set the following environment variables (or create a `.env` file):
+`make dev` starts Postgres, applies any pending migrations, and runs the API
+(`localhost:8080`) and frontend dev server (`localhost:5173`) concurrently.
+Ctrl+C stops both.
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET` | Secret used to sign and verify JWT tokens |
+### Environment variables
+
+Create a `.env` file in the repo root (loaded automatically by the API):
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `JWT_SECRET` | Yes | Secret used to sign and verify JWT tokens |
+| `CORS_ORIGIN` | No | Allowed CORS origin (default `*`; lock to your frontend URL in prod) |
+| `PORT` | No | API listen port (default `8080`) |
 
 Example `.env`:
 ```
 DATABASE_URL=postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable
 JWT_SECRET=change-me-in-production
+CORS_ORIGIN=http://localhost:5173
 ```
 
 ---
 
 ## API Reference
 
-All endpoints except `/auth/*` require a `Bearer` token in the `Authorization` header.
+All endpoints except `/auth/*` require `Authorization: Bearer <token>`.
 
-Currency amounts are always in **cents** (integer). `$10.00` = `10000`.
+Currency amounts are always in **cents** (integer). `$10.00` = `1000`.
 
-Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC3339Nano timestamp>`. Responses include `"next_cursor"` when more pages exist.
+Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC3339Nano>`. Responses include `"next_cursor"` when more pages exist.
 
 ### Auth
 
@@ -99,7 +121,7 @@ Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC333
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/expenses` | Create an expense; payer is set from the JWT |
+| POST | `/expenses` | Create an expense; payer is taken from the JWT |
 | GET | `/expenses` | List expenses; filter by `?group_id=` |
 | PUT | `/expenses/{id}` | Update an expense |
 | DELETE | `/expenses/{id}` | Delete an expense |
@@ -124,7 +146,7 @@ Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC333
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/groups` | Create a group; creator is set from the JWT |
+| POST | `/groups` | Create a group; creator is taken from the JWT |
 | GET | `/groups` | List groups for the authenticated user |
 | PUT | `/groups/{id}` | Rename a group |
 | DELETE | `/groups/{id}` | Delete a group |
@@ -146,10 +168,7 @@ Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC333
   "description": "Dinner",
   "total_cents": 9000,
   "split_type": "EVEN",
-  "splits": [
-    { "user_id": "alice" },
-    { "user_id": "bob" }
-  ]
+  "splits": [{ "user_id": "alice" }, { "user_id": "bob" }]
 }
 ```
 
@@ -162,22 +181,55 @@ Paginated endpoints accept `?limit=N` (default 20, max 100) and `?cursor=<RFC333
 
 ## Split Strategies
 
-| Strategy | `split_type` | `splits` format | Example |
-|---|---|---|---|
-| Even | `EVEN` | `[{"user_id": "alice"}, ...]` | Total divided equally; remainders go to first participant |
-| Exact | `EXACT` | `[{"user_id": "alice", "value": 2000}, ...]` | Values must sum to `total_cents` |
-| Percentage | `PERCENT` | `[{"user_id": "alice", "value": 25}, ...]` | Values must sum to 100 |
-| Shares | `SHARES` | `[{"user_id": "alice", "value": 2}, ...]` | Proportional to share counts |
+| Strategy | `split_type` | `splits` format |
+|---|---|---|
+| Even | `EVEN` | `[{"user_id": "alice"}, ...]` — total divided equally; remainders go to first |
+| Exact | `EXACT` | `[{"user_id": "alice", "value": 2000}, ...]` — values must sum to `total_cents` |
+| Percentage | `PERCENT` | `[{"user_id": "alice", "value": 25}, ...]` — values must sum to 100 |
+| Shares | `SHARES` | `[{"user_id": "alice", "value": 2}, ...]` — proportional to share counts |
 
 ---
 
-## CLI Tool
+## Frontend
 
-Parse a CSV ledger file and print settle-up instructions:
+The frontend is a SvelteKit SPA built with Tailwind CSS and a Windows 95 design system. It compiles to static files (`apps/frontend/build/`) and can be served from any static host.
+
+### Component library
+
+| Component | Description |
+|---|---|
+| `Window` | Win95 window frame with navy gradient title bar |
+| `Button` | Beveled button — variants: default, primary, danger, success |
+| `Input` | Inset sunken text input |
+| `Select` | Inset dropdown |
+| `HRule` | 3D groove horizontal rule |
+| `Marquee` | CSS-only scrolling announcement bar |
+| `HitCounter` | Black/green monospace stat display |
+| `Badge` | Pulsing label — variants: red, green, yellow, navy |
+| `Toast` | Fixed system-tray notifications with auto-dismiss |
+| `Nav` | Taskbar-style navigation bar with logout |
+
+### Frontend development commands
+
+```bash
+make frontend-install   # install Bun dependencies
+make frontend-dev       # start Vite dev server (localhost:5173)
+make frontend-build     # type-check (svelte-check) + production build
+make frontend-test      # run unit tests with Bun
+make dev                # start everything (recommended)
+```
+
+The dev server proxies `/api/*` → `http://localhost:8080` to avoid CORS in development.
+
+---
+
+## CSV CLI
+
+Parse a CSV ledger file offline and print settle-up instructions:
 
 ```bash
 make run-cli
-# or directly:
+# or:
 cd apps/backend && go run cmd/cli/main.go -file=../../test_expenses.csv
 ```
 
@@ -189,31 +241,30 @@ Date,Description,Category,TotalCents,Payer,Strategy,Participants...
 2026-04-02,Hotel,Lodging,30000,Charlie,EXACT,Alice:10000,Bob:10000,Charlie:10000
 ```
 
-Participant columns follow strategy syntax: `Name` for EVEN, `Name:Value` for EXACT/PERCENT/SHARES.
-
 ---
 
 ## Development
 
-```
-make check          # build + lint (run before every commit)
-make test-unit      # unit tests with coverage
-make test-race      # race detector
-make test-fuzz      # 30s fuzz run on domain package
+```bash
+make check             # build + lint (run before every commit)
+make test-unit         # unit tests with coverage
+make test-race         # race detector
+make test-fuzz         # 30s fuzz run on domain package
 make test-integration  # postgres integration tests (requires TEST_DB_URL)
-make test           # all of the above (spins up Docker)
-make migrate-up     # apply pending migrations
-make migrate-down   # roll back last migration
+make frontend-test     # frontend unit tests
+make migrate-up        # apply pending migrations
+make migrate-down      # roll back last migration
 ```
 
-The linter (`golangci-lint`) enforces doc comments on all exported identifiers, error wrapping, and a no-shadow rule. Run `make check` before opening a PR.
+CI runs the backend and frontend jobs in parallel. Both must pass before merging.
+The linter (`golangci-lint`) enforces doc comments, error wrapping, and a no-shadow rule.
 
 ---
 
 ## Contributing
 
 1. Fork the repo and create a branch from `main`.
-2. Make your changes. `make check` must pass clean.
+2. `make check` and `make frontend-build` must pass clean.
 3. Include tests for any new behaviour.
 4. Open a pull request — describe what changed and why.
 
