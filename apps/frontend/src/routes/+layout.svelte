@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import Marquee from '$lib/components/Marquee.svelte';
 	import Nav from '$lib/components/Nav.svelte';
+	import Toast from '$lib/components/Toast.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import type { Snippet } from 'svelte';
 
@@ -31,3 +32,5 @@
 {:else}
 	{@render children()}
 {/if}
+
+<Toast />

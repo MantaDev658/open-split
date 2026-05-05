@@ -87,12 +87,17 @@
 	animation-play-state: paused;
 }
 
+.pulse-glow {
+	animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
 /* ── Motion Accessibility ──────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
 	.rainbow-text,
 	.text-blink,
-	.marquee-inner {
+	.marquee-inner,
+	.pulse-glow {
 		animation: none;
 	}
 }
