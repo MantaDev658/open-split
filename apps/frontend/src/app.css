@@ -2,9 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Custom Properties ─────────────────────────────────────────── */
+
 :root {
 	--bevel-out:      inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
 	--bevel-in:       inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
 	--bevel-out-deep: inset -2px -2px 0 #808080, inset 2px 2px 0 #fff,
 	                  inset -4px -4px 0 #404040, inset 4px 4px 0 #dfdfdf;
+
+	--marquee-speed: 18s;
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────── */
+
+@keyframes rainbow {
+	0%   { color: #ff0000; }
+	17%  { color: #ff8800; }
+	33%  { color: #ffff00; }
+	50%  { color: #00cc00; }
+	67%  { color: #0000ff; }
+	83%  { color: #8800cc; }
+	100% { color: #ff0000; }
+}
+
+@keyframes pulse-glow {
+	0%, 100% { opacity: 1;    transform: scale(1); }
+	50%      { opacity: 0.75; transform: scale(1.05); }
+}
+
+@keyframes blink {
+	0%,  49% { visibility: visible; }
+	50%, 100% { visibility: hidden; }
+}
+
+@keyframes marquee-scroll {
+	from { transform: translateX(100vw); }
+	to   { transform: translateX(-100%); }
+}
+
+/* ── Utility Classes ───────────────────────────────────────────── */
+
+.rainbow-text {
+	animation: rainbow 2s linear infinite;
+}
+
+.text-blink {
+	animation: blink 1s step-start infinite;
+}
+
+/* Windows 95 teal desktop tile */
+.bg-90s-tile {
+	background-color: #008080;
+	background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+	background-size: 4px 4px;
+}
+
+/* Hazard stripe — used as a warning divider */
+.bg-construction {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		#ffff00,
+		#ffff00 10px,
+		#000000 10px,
+		#000000 20px
+	);
+}
+
+/* 3D groove <hr> */
+.hr-groove {
+	border: none;
+	border-top: 1px solid #808080;
+	border-bottom: 1px solid #ffffff;
+	margin: 8px 0;
+}
+
+/* Scrolling marquee inner element — parent must be overflow-hidden */
+.marquee-inner {
+	display: inline-block;
+	white-space: nowrap;
+	animation: marquee-scroll var(--marquee-speed) linear infinite;
+}
+
+.marquee-inner:hover {
+	animation-play-state: paused;
+}
+
+/* ── Motion Accessibility ──────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+	.rainbow-text,
+	.text-blink,
+	.marquee-inner {
+		animation: none;
+	}
 }
