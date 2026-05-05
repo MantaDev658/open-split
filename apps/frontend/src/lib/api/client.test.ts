@@ -31,6 +31,14 @@ describe('apiFetch', () => {
 		expect(result.ok).toBe(true);
 	});
 
+	test('returns undefined for empty body responses (201 no-content)', async () => {
+		globalThis.fetch = (_: RequestInfo | URL, _init?: RequestInit) =>
+			Promise.resolve(new Response('', { status: 201 }));
+
+		const result = await apiFetch<void>('/test');
+		expect(result).toBeUndefined();
+	});
+
 	test('throws APIError with correct status on 4xx', async () => {
 		mockFetch({ error: 'not found' }, 404);
 		await expect(apiFetch('/test')).rejects.toThrow(APIError);

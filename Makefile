@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build frontend-test
+.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build frontend-test dev
 
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
@@ -57,6 +57,14 @@ test-integration:
 test: test-unit test-race test-fuzz db-up migrate-up test-integration db-down
 
 # --- Run Application ---
+
+dev: db-up migrate-up
+	@echo "API:      http://localhost:8080"
+	@echo "Frontend: http://localhost:5173"
+	@trap 'kill 0' INT; \
+	go run ./apps/backend/cmd/api/main.go & \
+	(cd apps/frontend && bun run dev) & \
+	wait
 
 run-api: db-up
 	@echo "Starting Open Split API..."
