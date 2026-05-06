@@ -85,6 +85,11 @@ frontend-build:
 frontend-test:
 	cd apps/frontend && bun test
 
+frontend-clean:
+	cd apps/frontend && bun clean
+
+ftest: frontend-clean frontend-install frontend-build frontend-test
+
 # --- Database & Infrastructure ---
 
 db-up:

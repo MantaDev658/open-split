@@ -10,6 +10,7 @@ interface AuthState {
 function jwtSub(token: string): string | null {
 	try {
 		const payload = token.split('.')[1];
+		if (!payload) return null;
 		const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
 		return typeof decoded.sub === 'string' ? decoded.sub : null;
 	} catch {

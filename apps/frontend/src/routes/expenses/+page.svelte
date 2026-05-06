@@ -27,7 +27,7 @@
 	// ── Create form ─────────────────────────────────────────────────
 	let desc = $state('');
 	let totalDollars = $state('');
-	let splitType = $state<SplitType>('EVEN');
+	let splitType = $state<SplitType>('EQUAL');
 	let formGroupId = $state('');
 	let participants = $state<{ userID: string; value: string }[]>([]);
 	let addUserID = $state('');
@@ -51,12 +51,25 @@
 	const splitValueMeta = $derived(
 		splitType === 'EXACT'
 			? { label: 'Amount ($)', placeholder: '0.00' }
-			: splitType === 'PERCENT'
+			: splitType === 'PERCENTAGE'
 				? { label: 'Percent (%)', placeholder: '0' }
 				: splitType === 'SHARES'
 					? { label: 'Shares', placeholder: '1' }
 					: null
 	);
+
+	// ── Auto-populate participants when group is selected ─────────────
+	$effect(() => {
+		const gid = formGroupId;
+		if (gid) {
+			const g = groups.find((grp) => grp.ID === gid);
+			if (g) {
+				participants = g.Members.map((memberID) => ({ userID: memberID, value: '' }));
+			}
+		} else {
+			participants = [];
+		}
+	});
 
 	// ── Data loading ─────────────────────────────────────────────────
 	$effect(() => {
@@ -133,7 +146,7 @@
 	function resetForm() {
 		desc = '';
 		totalDollars = '';
-		splitType = 'EVEN';
+		splitType = 'EQUAL';
 		formGroupId = '';
 		participants = [];
 		addUserID = '';
@@ -150,7 +163,7 @@
 		if (participants.length === 0) { formError = 'Add at least one participant.'; return; }
 
 		const splits: SplitInput[] = participants.map((p) => {
-			if (splitType === 'EVEN') return { user_id: p.userID };
+			if (splitType === 'EQUAL') return { user_id: p.userID };
 			const num = parseFloat(p.value);
 			const value = splitType === 'EXACT' ? Math.round(num * 100) : Math.round(num);
 			return { user_id: p.userID, value };
@@ -239,9 +252,9 @@
 							id="exp-split"
 							bind:value={splitType}
 							options={[
-								{ value: 'EVEN', label: 'Even' },
+								{ value: 'EQUAL', label: 'Even' },
 								{ value: 'EXACT', label: 'Exact amounts' },
-								{ value: 'PERCENT', label: 'Percentages' },
+								{ value: 'PERCENTAGE', label: 'Percentages' },
 								{ value: 'SHARES', label: 'Shares' }
 							]}
 						/>
@@ -260,6 +273,9 @@
 				<!-- Participants -->
 				<div class="flex flex-col gap-1">
 					<span class="text-xs font-bold">Participants</span>
+					{#if formGroupId}
+						<p class="text-xs text-win-dark italic">All group members included — remove as needed</p>
+					{/if}
 					{#each participants as p}
 						<div class="flex items-center gap-2">
 							<span class="text-xs flex-1 truncate">
@@ -280,15 +296,17 @@
 							<Button variant="danger" onclick={() => removeParticipant(p.userID)}>✕</Button>
 						</div>
 					{/each}
-					<div class="flex gap-2 mt-1">
-						<Select
-							bind:value={addUserID}
-							placeholder="Select user…"
-							options={userOptions}
-							class="flex-1"
-						/>
-						<Button onclick={addParticipant} disabled={!addUserID}>+ ADD</Button>
-					</div>
+					{#if !formGroupId}
+						<div class="flex gap-2 mt-1">
+							<Select
+								bind:value={addUserID}
+								placeholder="Select user…"
+								options={userOptions}
+								class="flex-1"
+							/>
+							<Button onclick={addParticipant} disabled={!addUserID}>+ ADD</Button>
+						</div>
+					{/if}
 				</div>
 
 				{#if formError}

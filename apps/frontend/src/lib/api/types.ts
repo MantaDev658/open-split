@@ -68,7 +68,7 @@ export interface CreateGroupResponse {
 	group_id: string;
 }
 
-export type SplitType = 'EVEN' | 'EXACT' | 'PERCENT' | 'SHARES';
+export type SplitType = 'EQUAL' | 'EXACT' | 'PERCENTAGE' | 'SHARES';
 
 export interface SplitInput {
 	user_id: string;

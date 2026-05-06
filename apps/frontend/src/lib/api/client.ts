@@ -1,6 +1,6 @@
 import { authStore, getToken } from '../stores/auth';
 
-const API_BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? '/api';
+const API_BASE = (import.meta.env?.['VITE_API_BASE'] as string | undefined) ?? '/api';
 
 export class APIError extends Error {
 	constructor(

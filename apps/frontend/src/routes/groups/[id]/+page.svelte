@@ -121,6 +121,36 @@
 		}
 	}
 
+	// ── Audit log formatting ──────────────────────────────────────────
+	function formatAuditEntry(log: AuditLog): string {
+		const actor = userByID[log.user_id]?.DisplayName ?? log.user_id;
+		const targetUser = log.target_id ? (userByID[log.target_id]?.DisplayName ?? log.target_id) : null;
+		const name = group?.Name ?? 'this group';
+
+		switch (log.action) {
+			case 'CREATED_GROUP':
+				return `${actor} created "${name}"`;
+			case 'ADDED_MEMBER':
+				return `${actor} added ${targetUser} to ${name}`;
+			case 'REMOVED_GROUP_MEMBER':
+				return `${actor} removed ${targetUser} from ${name}`;
+			case 'RENAMED_GROUP':
+				return `${actor} renamed the group to "${log.details?.replace('Renamed to ', '')}"`;
+			case 'DELETED_GROUP':
+				return `${actor} deleted the group`;
+			case 'CREATED_EXPENSE':
+				return `${actor} added expense "${log.details}"`;
+			case 'UPDATED_EXPENSE':
+				return `${actor} updated expense "${log.details?.replace('Updated: ', '')}"`;
+			case 'DELETED_EXPENSE':
+				return `${actor} deleted expense "${log.details?.replace('Deleted expense: ', '')}"`;
+			case 'SETTLED_DEBT':
+				return `${actor} recorded a payment`;
+			default:
+				return `${actor}: ${log.action}${log.details ? ` — ${log.details}` : ''}`;
+		}
+	}
+
 	// ── Activity pagination ───────────────────────────────────────────
 	function activityNext() {
 		activityCursorStack = [...activityCursorStack, activityCursor];
@@ -226,15 +256,11 @@
 			{#if !activity.length}
 				<p class="font-system text-sm text-win-dark">No activity yet.</p>
 			{:else}
-				<div class="flex flex-col gap-1 font-mono text-xs">
+				<div class="flex flex-col gap-1 font-system text-xs">
 					{#each activity as log, i}
-						<div class="px-2 py-1 {i % 2 === 0 ? 'bg-win-panel' : 'bg-white'}">
-							<span class="text-win-dark">{formatDate(log.created_at)}</span>
-							<span class="font-bold mx-2">{log.action}</span>
-							<span class="text-win-dark">{log.user_id}</span>
-							{#if log.details}
-								<span class="ml-2 italic">{log.details}</span>
-							{/if}
+						<div class="px-2 py-1 {i % 2 === 0 ? 'bg-win-panel' : 'bg-white'} flex items-baseline gap-3">
+							<span class="text-win-dark shrink-0 font-mono">{formatDate(log.created_at)}</span>
+							<span>{formatAuditEntry(log)}</span>
 						</div>
 					{/each}
 				</div>

@@ -1,27 +1,52 @@
 <script lang="ts">
 	import { getBalances, listExpenses } from '$lib/api/expenses';
+	import { listGroups } from '$lib/api/groups';
+	import { listUsers } from '$lib/api/users';
 	import HitCounter from '$lib/components/HitCounter.svelte';
 	import Window from '$lib/components/Window.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { formatCents, formatDate } from '$lib/utils';
-	import type { BalancesResponse, ExpenseItem } from '$lib/api/types';
+	import type { BalancesResponse, ExpenseItem, Group, User } from '$lib/api/types';
 
-	let balances = $state<BalancesResponse | null>(null);
+	let globalBalances = $state<BalancesResponse | null>(null);
+	let groups = $state<Group[]>([]);
+	let users = $state<User[]>([]);
 	let expenses = $state<ExpenseItem[]>([]);
+	let groupStatuses = $state<Record<string, { settled: boolean; count: number }>>({});
 	let loading = $state(true);
 	let error = $state('');
 
 	const userID = $derived($authStore.userID ?? '');
-	const userBalance = $derived(balances?.net_balances[userID] ?? 0);
+	const userBalance = $derived(globalBalances?.net_balances[userID] ?? 0);
 	const owedToMe = $derived(Math.max(0, userBalance));
 	const iOwe = $derived(Math.max(0, -userBalance));
+	const userByID = $derived(Object.fromEntries(users.map((u) => [u.ID, u])));
 
 	$effect(() => {
 		async function load() {
 			try {
-				const [bal, exp] = await Promise.all([getBalances(), listExpenses(undefined, undefined, 5)]);
-				balances = bal;
+				const [bal, grps, usrs, exp] = await Promise.all([
+					getBalances(),
+					listGroups(),
+					listUsers(),
+					listExpenses(undefined, undefined, 5)
+				]);
+				globalBalances = bal;
+				groups = grps;
+				users = usrs;
 				expenses = exp.data;
+
+				const entries = await Promise.all(
+					grps.map(async (g) => {
+						try {
+							const b = await getBalances(g.ID);
+							return [g.ID, { settled: b.suggested_settlements.length === 0, count: b.suggested_settlements.length }] as const;
+						} catch {
+							return [g.ID, { settled: true, count: 0 }] as const;
+						}
+					})
+				);
+				groupStatuses = Object.fromEntries(entries);
 			} catch {
 				error = 'Failed to load dashboard data.';
 			} finally {
@@ -41,31 +66,96 @@
 {:else if error}
 	<p class="font-system text-win-red text-sm">{error}</p>
 {:else}
-	<!-- Balances + Settlements -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-		<!-- Hit counters -->
-		<div class="flex flex-col gap-3">
-			<HitCounter label="You Are Owed (cents)" value={owedToMe} />
-			<HitCounter label="You Owe (cents)" value={iOwe} />
-		</div>
+	{#if groups.length === 0 && expenses.length === 0}
+		<!-- Getting started — no data yet -->
+		<Window title="WELCOME TO OPEN SPLIT">
+			<div class="font-system text-sm flex flex-col gap-3">
+				<p class="font-bold">You're all set up! Here's how to get started:</p>
+				<ol class="list-decimal list-inside flex flex-col gap-2 text-win-dark">
+					<li>
+						<a href="/groups" class="text-win-accent underline font-bold">Create a group</a>
+						— Ski trip, apartment, road trip, etc.
+					</li>
+					<li>Add your friends as group members</li>
+					<li>
+						<a href="/expenses" class="text-win-accent underline font-bold">Log an expense</a>
+						— who paid, how to split it
+					</li>
+					<li>When it's time to settle,
+						<a href="/settle" class="text-win-accent underline font-bold">record a payment</a>
+					</li>
+				</ol>
+			</div>
+		</Window>
+	{:else}
+	<!-- Balance totals -->
+	<div class="flex gap-4 mb-4 flex-wrap">
+		<HitCounter label="You Are Owed" value={owedToMe} />
+		<HitCounter label="You Owe" value={iOwe} />
+	</div>
 
-		<!-- Suggested settlements -->
+	<!-- Groups + Settlements grid -->
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+		<!-- Groups with settled status -->
+		<Window title="MY GROUPS">
+			{#if !groups.length}
+				<p class="font-system text-sm text-win-dark">
+					No groups yet.
+					<a href="/groups" class="text-win-accent underline">Create one →</a>
+				</p>
+			{:else}
+				<div class="flex flex-col gap-1 font-system text-sm">
+					{#each groups as g, i}
+						{@const status = groupStatuses[g.ID]}
+						<a href="/groups/{g.ID}" class="block no-underline">
+							<div class="flex items-center justify-between px-2 py-1.5
+							            {i % 2 === 0 ? 'bg-win-panel' : 'bg-white'}">
+								<span class="font-bold truncate">{g.Name}</span>
+								<span class="shrink-0 ml-3 text-xs font-bold">
+									{#if status === undefined}
+										<span class="text-win-dark animate-pulse">…</span>
+									{:else if status.settled}
+										<span style="color: #008000">✓ SETTLED</span>
+									{:else}
+										<span class="text-win-red">⚠ {status.count} unsettled</span>
+									{/if}
+								</span>
+							</div>
+						</a>
+					{/each}
+				</div>
+				<a href="/groups" class="block text-xs text-win-accent underline mt-2 font-system">
+					Manage groups →
+				</a>
+			{/if}
+		</Window>
+
+		<!-- Suggested settlements (global) -->
 		<Window title="SUGGESTED SETTLEMENTS">
-			{#if !balances?.suggested_settlements.length}
+			{#if !globalBalances?.suggested_settlements.length}
 				<p class="font-system text-sm text-win-dark">All settled up! ✓</p>
 			{:else}
 				<table class="w-full font-system text-sm">
 					<tbody>
-						{#each balances.suggested_settlements as s, i}
+						{#each globalBalances.suggested_settlements as s, i}
 							<tr class="{i % 2 === 0 ? 'bg-win-panel' : 'bg-white'} leading-6">
-								<td class="px-2 font-bold">{s.From}</td>
+								<td class="px-2 font-bold truncate max-w-0 w-2/5">
+									{userByID[s.From]?.DisplayName ?? s.From}
+								</td>
 								<td class="px-1 text-win-dark">→</td>
-								<td class="px-2">{s.To}</td>
-								<td class="px-2 text-right font-mono">{formatCents(s.Amount)}</td>
+								<td class="px-2 truncate max-w-0 w-2/5">
+									{userByID[s.To]?.DisplayName ?? s.To}
+								</td>
+								<td class="px-2 text-right font-mono whitespace-nowrap">
+									{formatCents(s.Amount)}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
+				<a href="/settle" class="block text-xs text-win-accent underline mt-2 font-system">
+					Record a payment →
+				</a>
 			{/if}
 		</Window>
 	</div>
@@ -76,7 +166,10 @@
 	<!-- Recent expenses -->
 	<Window title="RECENT EXPENSES">
 		{#if !expenses.length}
-			<p class="font-system text-sm text-win-dark">No expenses yet.</p>
+			<p class="font-system text-sm text-win-dark">
+				No expenses yet.
+				<a href="/expenses" class="text-win-accent underline">Add one →</a>
+			</p>
 		{:else}
 			<table class="w-full font-system text-sm">
 				<thead>
@@ -103,4 +196,5 @@
 			</a>
 		{/if}
 	</Window>
+	{/if}
 {/if}
