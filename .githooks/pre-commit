@@ -110,7 +110,7 @@ printf "       %-34s" "PostgreSQL"
 if nc -z 127.0.0.1 5432 2>/dev/null; then
     make migrate-up --no-print-directory >"$LOG" 2>&1 \
         || { printf "${RED}✗${NC}\n"; show_fail; }
-    printf "${GRN}✓${NC}  ${DIM}existing${NC}\n"
+    printf "${GRN}✓${NC}  ${DIM}running${NC}\n"
 else
     make db-up --no-print-directory >"$LOG" 2>&1 \
         || { printf "${RED}✗${NC}\n"; show_fail; }
