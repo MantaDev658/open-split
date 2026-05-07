@@ -89,7 +89,8 @@ func (h *APIHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
 
 	var nextCursor string
 	if page.Limit > 0 && len(expenses) == page.Limit {
-		nextCursor = expenses[len(expenses)-1].CreatedAt().UTC().Format(time.RFC3339Nano)
+		last := expenses[len(expenses)-1]
+		nextCursor = last.CreatedAt().UTC().Format(time.RFC3339Nano) + "|" + string(last.ID())
 	}
 
 	w.Header().Set("Content-Type", "application/json")

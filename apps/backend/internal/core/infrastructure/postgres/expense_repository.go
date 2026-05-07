@@ -183,10 +183,10 @@ func (r *ExpenseRepository) ListAll(ctx context.Context, page domain.Page) ([]*d
 	`
 	var args []any
 	if !page.Cursor.IsZero() {
-		args = append(args, page.Cursor)
-		query += fmt.Sprintf(" WHERE e.created_at > $%d", len(args))
+		args = append(args, page.Cursor, page.CursorID)
+		query += fmt.Sprintf(" WHERE (e.created_at > $%d OR (e.created_at = $%d AND e.id > $%d))", len(args)-1, len(args)-1, len(args))
 	}
-	query += " ORDER BY e.created_at ASC"
+	query += " ORDER BY e.created_at ASC, e.id ASC"
 	if page.Limit > 0 {
 		args = append(args, page.Limit)
 		query += fmt.Sprintf(" LIMIT $%d", len(args))
@@ -209,10 +209,10 @@ func (r *ExpenseRepository) ListForUser(ctx context.Context, userID domain.UserI
 		WHERE (e.payer_id = $1 OR e.id IN (SELECT expense_id FROM splits WHERE user_id = $1))
 	`
 	if !page.Cursor.IsZero() {
-		args = append(args, page.Cursor)
-		query += fmt.Sprintf(" AND e.created_at > $%d", len(args))
+		args = append(args, page.Cursor, page.CursorID)
+		query += fmt.Sprintf(" AND (e.created_at > $%d OR (e.created_at = $%d AND e.id > $%d))", len(args)-1, len(args)-1, len(args))
 	}
-	query += " ORDER BY e.created_at ASC"
+	query += " ORDER BY e.created_at ASC, e.id ASC"
 	if page.Limit > 0 {
 		args = append(args, page.Limit)
 		query += fmt.Sprintf(" LIMIT $%d", len(args))
@@ -235,10 +235,10 @@ func (r *ExpenseRepository) ListByGroup(ctx context.Context, groupID domain.Grou
 		WHERE e.group_id = $1
 	`
 	if !page.Cursor.IsZero() {
-		args = append(args, page.Cursor)
-		query += fmt.Sprintf(" AND e.created_at > $%d", len(args))
+		args = append(args, page.Cursor, page.CursorID)
+		query += fmt.Sprintf(" AND (e.created_at > $%d OR (e.created_at = $%d AND e.id > $%d))", len(args)-1, len(args)-1, len(args))
 	}
-	query += " ORDER BY e.created_at ASC"
+	query += " ORDER BY e.created_at ASC, e.id ASC"
 	if page.Limit > 0 {
 		args = append(args, page.Limit)
 		query += fmt.Sprintf(" LIMIT $%d", len(args))

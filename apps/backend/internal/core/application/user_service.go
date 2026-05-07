@@ -11,24 +11,20 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 )
 
-// UserService implements user registration, authentication, and account management.
 type UserService struct {
 	repo      domain.UserRepository
 	jwtSecret []byte
 }
 
-// NewUserService wires the repository and JWT signing secret into a UserService.
 func NewUserService(repo domain.UserRepository, secret []byte) *UserService {
 	return &UserService{repo: repo, jwtSecret: secret}
 }
 
-// CreateUserCommand carries the input for creating a basic user account.
 type CreateUserCommand struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
 }
 
-// CreateUser persists a basic user account without password authentication.
 func (s *UserService) CreateUser(ctx context.Context, cmd CreateUserCommand) error {
 	if cmd.ID == "" || cmd.DisplayName == "" {
 		return fmt.Errorf("user ID and display name are required")
@@ -42,7 +38,6 @@ func (s *UserService) CreateUser(ctx context.Context, cmd CreateUserCommand) err
 	return s.repo.Save(ctx, user)
 }
 
-// RegisterUser hashes the password and persists the account.
 func (s *UserService) RegisterUser(ctx context.Context, id, displayName, plainPassword string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -57,7 +52,6 @@ func (s *UserService) RegisterUser(ctx context.Context, id, displayName, plainPa
 	return s.repo.Save(ctx, user)
 }
 
-// LoginUser verifies credentials and returns a signed JWT on success.
 func (s *UserService) LoginUser(ctx context.Context, id, plainPassword string) (string, error) {
 	user, err := s.repo.GetByID(ctx, domain.UserID(id))
 	if err != nil || !user.IsActive {
@@ -75,12 +69,10 @@ func (s *UserService) LoginUser(ctx context.Context, id, plainPassword string) (
 	return token.SignedString(s.jwtSecret)
 }
 
-// ListUsers returns all registered users.
 func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return s.repo.ListAll(ctx)
 }
 
-// UpdateUser changes the display name for the given user.
 func (s *UserService) UpdateUser(ctx context.Context, id string, displayName string) error {
 	if displayName == "" {
 		return domain.ErrEmptyDisplayName
@@ -88,8 +80,6 @@ func (s *UserService) UpdateUser(ctx context.Context, id string, displayName str
 	return s.repo.Update(ctx, domain.UserID(id), displayName)
 }
 
-// ChangePassword verifies the current password then replaces it with a newly hashed one.
-// New password must be at least 8 characters and differ from the current one.
 func (s *UserService) ChangePassword(ctx context.Context, id, currentPlain, newPlain string) error {
 	if len(newPlain) < 8 {
 		return domain.ErrPasswordTooShort
@@ -116,7 +106,6 @@ func (s *UserService) ChangePassword(ctx context.Context, id, currentPlain, newP
 	return s.repo.UpdatePassword(ctx, domain.UserID(id), string(newHash))
 }
 
-// ListFriends returns all active users who share at least one group with the given user.
 func (s *UserService) ListFriends(ctx context.Context, userID string) ([]domain.User, error) {
 	return s.repo.ListCoMembers(ctx, domain.UserID(userID))
 }

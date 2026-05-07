@@ -5,8 +5,6 @@ import (
 	"opensplit/apps/backend/internal/core/domain"
 )
 
-// Transactor
-
 type MockTransactor struct {
 	RunInTxFunc func(ctx context.Context, fn func(context.Context) error) error
 }
@@ -17,8 +15,6 @@ func (m *MockTransactor) RunInTx(ctx context.Context, fn func(context.Context) e
 	}
 	return fn(ctx) // default: execute fn directly, no real transaction
 }
-
-// Audit
 
 type MockAuditRepo struct {
 	SaveFunc        func(ctx context.Context, log domain.AuditLog) error
@@ -38,8 +34,6 @@ func (m *MockAuditRepo) ListByGroup(ctx context.Context, groupID domain.GroupID,
 	}
 	return nil, nil
 }
-
-// Expense
 
 type MockExpenseRepo struct {
 	SaveFunc                    func(ctx context.Context, expense *domain.Expense) error
@@ -108,8 +102,6 @@ func (m *MockExpenseRepo) Delete(ctx context.Context, id domain.ExpenseID) error
 	return nil
 }
 
-// User
-
 type MockUserRepo struct {
 	SaveFunc           func(ctx context.Context, user domain.User) error
 	GetByIDFunc        func(ctx context.Context, id domain.UserID) (*domain.User, error)
@@ -168,8 +160,6 @@ func (m *MockUserRepo) SoftDelete(ctx context.Context, user domain.UserID) error
 	}
 	return nil
 }
-
-// Group
 
 type MockGroupRepo struct {
 	SaveFunc         func(ctx context.Context, group *domain.Group) error

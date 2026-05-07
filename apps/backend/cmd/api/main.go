@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"opensplit/apps/backend/internal/core/application"
@@ -50,6 +53,12 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("application failed: %v", err)
+	}
+}
+
+func run() error {
 	cfg := loadConfig()
 
 	rawDB, err := sql.Open("postgres", cfg.dbURL)
@@ -110,7 +119,30 @@ func main() {
 	}
 
 	fmt.Printf("API running on %s\n", cfg.port)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Printf("server crashed: %v", err)
+	serverError := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverError <- err
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverError:
+		return fmt.Errorf("server crashed: %w", err)
+	case <-stop:
+		log.Println("Shutting down gracefully...")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		return fmt.Errorf("forced shutdown: %w", err)
+	}
+
+	log.Println("server stopped")
+	return nil
 }

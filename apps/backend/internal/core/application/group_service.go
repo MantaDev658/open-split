@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// GroupService implements group management and member lifecycle use cases.
 type GroupService struct {
 	groupRepo   domain.GroupRepository
 	expenseRepo domain.ExpenseRepository
@@ -17,7 +16,6 @@ type GroupService struct {
 	transactor  domain.Transactor
 }
 
-// NewGroupService wires the repositories and transactor into a GroupService.
 func NewGroupService(groupRepo domain.GroupRepository, expenseRepo domain.ExpenseRepository, auditRepo domain.AuditRepository, tx domain.Transactor) *GroupService {
 	return &GroupService{
 		groupRepo:   groupRepo,
@@ -27,7 +25,6 @@ func NewGroupService(groupRepo domain.GroupRepository, expenseRepo domain.Expens
 	}
 }
 
-// CreateGroupCommand carries the input for creating a new group.
 type CreateGroupCommand struct {
 	Name      string `json:"name"`
 	CreatorID string `json:"-"` // set by the handler from JWT; never read from client input
@@ -40,7 +37,6 @@ func (c CreateGroupCommand) Validate() error {
 	return nil
 }
 
-// CreateGroup validates the command, persists the group, and writes an audit log entry.
 func (s *GroupService) CreateGroup(ctx context.Context, cmd CreateGroupCommand) (string, error) {
 	id := domain.GroupID(uuid.NewString())
 	group, err := domain.NewGroup(id, cmd.Name, domain.UserID(cmd.CreatorID))
@@ -66,12 +62,10 @@ func (s *GroupService) CreateGroup(ctx context.Context, cmd CreateGroupCommand) 
 	return string(id), nil
 }
 
-// ListGroupsForUser returns all groups the given user belongs to.
 func (s *GroupService) ListGroupsForUser(ctx context.Context, userID string) ([]*domain.Group, error) {
 	return s.groupRepo.ListForUser(ctx, domain.UserID(userID))
 }
 
-// AddMemberToGroup adds userID to the group and records the change in the audit log.
 func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, userID string, actorID string) error {
 	gID := domain.GroupID(groupID)
 	uID := domain.UserID(userID)
@@ -99,7 +93,6 @@ func (s *GroupService) AddMemberToGroup(ctx context.Context, groupID string, use
 	})
 }
 
-// UpdateGroup renames a group and records the change in the audit log.
 func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, name string, actorID string) error {
 	if name == "" {
 		return domain.ErrEmptyGroupName
@@ -119,7 +112,6 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, name str
 	})
 }
 
-// DeleteGroup removes the group and records the deletion in the audit log.
 func (s *GroupService) DeleteGroup(ctx context.Context, groupID string, userID string) error {
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if err := s.groupRepo.Delete(txCtx, domain.GroupID(groupID)); err != nil {
@@ -145,10 +137,11 @@ func (s *GroupService) RemoveMember(ctx context.Context, groupID string, userID 
 		return fmt.Errorf("failed to fetch group expenses for validation: %w", err)
 	}
 
-	balances := domain.CalculateNetBalances(expenses)
-	if balance, exists := balances[uID]; exists && balance != 0 {
-		dollars := float64(balance) / 100.0
-		return fmt.Errorf("%w: $%.2f", domain.ErrOutstandingBalance, dollars)
+	pairwise := domain.CalculatePairwiseBalance(expenses, uID)
+	for _, balance := range pairwise {
+		if balance != 0 {
+			return fmt.Errorf("%w with one or more members", domain.ErrOutstandingBalance)
+		}
 	}
 
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {

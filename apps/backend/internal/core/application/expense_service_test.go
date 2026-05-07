@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"opensplit/apps/backend/internal/core/domain"
 	"opensplit/apps/backend/internal/core/mocks"
+	"opensplit/libs/shared/money"
 )
 
 func newTestExpenseService(eRepo *mocks.MockExpenseRepo, gRepo *mocks.MockGroupRepo, aRepo *mocks.MockAuditRepo) *ExpenseService {
@@ -208,6 +210,123 @@ func TestExpenseService_AddExpense_AuditIsAtomic(t *testing.T) {
 		}
 		if !saved {
 			t.Error("expected expense Save to be called within transaction")
+		}
+	})
+}
+
+func TestExpenseService_UpdateExpense(t *testing.T) {
+	makeOldExpense := func(groupID string) *domain.Expense {
+		total, _ := money.New(3000)
+		split, _ := money.New(3000)
+		var gPtr *domain.GroupID
+		if groupID != "" {
+			g := domain.GroupID(groupID)
+			gPtr = &g
+		}
+		exp, _ := domain.NewExpenseFromDB(
+			"exp-1", gPtr, "Old Desc", total, "Alice",
+			[]domain.Split{{User: "Alice", Amount: split}},
+			time.Now(),
+		)
+		return exp
+	}
+
+	t.Run("returns error when expense not found", func(t *testing.T) {
+		service := newTestExpenseService(&mocks.MockExpenseRepo{}, &mocks.MockGroupRepo{}, &mocks.MockAuditRepo{})
+		cmd := UpdateExpenseCommand{ID: "missing", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
+		if err := service.UpdateExpense(context.Background(), cmd); !errors.Is(err, domain.ErrExpenseNotFound) {
+			t.Errorf("expected ErrExpenseNotFound, got %v", err)
+		}
+	})
+
+	t.Run("basic update in same group writes one audit save", func(t *testing.T) {
+		auditSaves := 0
+		eRepo := &mocks.MockExpenseRepo{
+			GetByIDFunc: func(_ context.Context, _ domain.ExpenseID) (*domain.Expense, error) {
+				return makeOldExpense("group-a"), nil
+			},
+		}
+		gRepo := &mocks.MockGroupRepo{
+			GetByIDFunc: func(_ context.Context, id domain.GroupID) (*domain.Group, error) {
+				return &domain.Group{ID: id, Members: []domain.UserID{"Alice"}}, nil
+			},
+		}
+		aRepo := &mocks.MockAuditRepo{
+			SaveFunc: func(_ context.Context, log domain.AuditLog) error {
+				auditSaves++
+				if log.Action != domain.AuditActionUpdatedExpense {
+					t.Errorf("expected UpdatedExpense audit, got %s", log.Action)
+				}
+				return nil
+			},
+		}
+		service := newTestExpenseService(eRepo, gRepo, aRepo)
+		cmd := UpdateExpenseCommand{ID: "exp-1", GroupID: "group-a", Description: "Updated", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
+		if err := service.UpdateExpense(context.Background(), cmd); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if auditSaves != 1 {
+			t.Errorf("expected 1 audit save, got %d", auditSaves)
+		}
+	})
+
+	t.Run("group swap writes deletion audit to old group then update to new group", func(t *testing.T) {
+		var auditActions []domain.AuditAction
+		eRepo := &mocks.MockExpenseRepo{
+			GetByIDFunc: func(_ context.Context, _ domain.ExpenseID) (*domain.Expense, error) {
+				return makeOldExpense("group-a"), nil
+			},
+		}
+		gRepo := &mocks.MockGroupRepo{
+			GetByIDFunc: func(_ context.Context, id domain.GroupID) (*domain.Group, error) {
+				return &domain.Group{ID: id, Members: []domain.UserID{"Alice"}}, nil
+			},
+		}
+		aRepo := &mocks.MockAuditRepo{
+			SaveFunc: func(_ context.Context, log domain.AuditLog) error {
+				auditActions = append(auditActions, log.Action)
+				return nil
+			},
+		}
+		service := newTestExpenseService(eRepo, gRepo, aRepo)
+		cmd := UpdateExpenseCommand{ID: "exp-1", GroupID: "group-b", Description: "Updated", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
+		if err := service.UpdateExpense(context.Background(), cmd); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(auditActions) != 2 {
+			t.Fatalf("expected 2 audit saves (delete+update), got %d", len(auditActions))
+		}
+		if auditActions[0] != domain.AuditActionDeletedExpense {
+			t.Errorf("first audit should be DeletedExpense, got %s", auditActions[0])
+		}
+		if auditActions[1] != domain.AuditActionUpdatedExpense {
+			t.Errorf("second audit should be UpdatedExpense, got %s", auditActions[1])
+		}
+	})
+
+	t.Run("moving expense out of group writes only deletion audit for old group", func(t *testing.T) {
+		var auditActions []domain.AuditAction
+		eRepo := &mocks.MockExpenseRepo{
+			GetByIDFunc: func(_ context.Context, _ domain.ExpenseID) (*domain.Expense, error) {
+				return makeOldExpense("group-a"), nil
+			},
+		}
+		aRepo := &mocks.MockAuditRepo{
+			SaveFunc: func(_ context.Context, log domain.AuditLog) error {
+				auditActions = append(auditActions, log.Action)
+				return nil
+			},
+		}
+		service := newTestExpenseService(eRepo, &mocks.MockGroupRepo{}, aRepo)
+		cmd := UpdateExpenseCommand{ID: "exp-1", GroupID: "", Description: "Updated", TotalCents: 3000, Payer: "Alice", SplitType: "EXACT", Splits: []SplitDetail{{UserID: "Alice", Value: 3000}}}
+		if err := service.UpdateExpense(context.Background(), cmd); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(auditActions) != 1 {
+			t.Fatalf("expected 1 audit save (deletion only), got %d", len(auditActions))
+		}
+		if auditActions[0] != domain.AuditActionDeletedExpense {
+			t.Errorf("expected DeletedExpense audit, got %s", auditActions[0])
 		}
 	})
 }

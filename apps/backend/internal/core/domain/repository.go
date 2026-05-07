@@ -12,9 +12,12 @@ type Transactor interface {
 
 // Page controls pagination for list queries. Limit=0 means no limit.
 // Cursor is the created_at of the last item seen; zero means start from the beginning.
+// CursorID is the id of the last item seen, used as a tie-breaker when two rows
+// share the same created_at timestamp (prevents rows from being silently skipped).
 type Page struct {
-	Limit  int
-	Cursor time.Time
+	Limit    int
+	Cursor   time.Time
+	CursorID string
 }
 
 // FriendBalance is the aggregated net balance between two users across all non-group expenses.

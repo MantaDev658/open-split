@@ -181,4 +181,27 @@ func TestGroupService_RemoveMember_BalanceValidation(t *testing.T) {
 			t.Errorf("expected success, got: %v", err)
 		}
 	})
+
+	t.Run("Fails when pairwise debts exist despite zero aggregate net (zero-sum trap)", func(t *testing.T) {
+		// Alice pays $50 split with Bob → Bob owes Alice $25
+		// Charlie pays $50 split with Alice → Alice owes Charlie $25
+		// Alice's aggregate net is 0, but she has live bilateral debts on both sides.
+		eRepo := &mocks.MockExpenseRepo{
+			ListByGroupFunc: func(_ context.Context, _ domain.GroupID, _ domain.Page) ([]*domain.Expense, error) {
+				total, _ := money.New(5000)
+				split, _ := money.New(2500)
+				exp1, _ := domain.NewExpense("exp-1", nil, "Lunch", total, "Alice",
+					[]domain.Split{{User: "Alice", Amount: split}, {User: "Bob", Amount: split}})
+				exp2, _ := domain.NewExpense("exp-2", nil, "Dinner", total, "Charlie",
+					[]domain.Split{{User: "Charlie", Amount: split}, {User: "Alice", Amount: split}})
+				return []*domain.Expense{exp1, exp2}, nil
+			},
+		}
+		service := newTestGroupService(gRepo, eRepo, aRepo)
+
+		err := service.RemoveMember(context.Background(), "g1", "Alice", "admin")
+		if !errors.Is(err, domain.ErrOutstandingBalance) {
+			t.Errorf("expected ErrOutstandingBalance (zero-sum trap), got %v", err)
+		}
+	})
 }

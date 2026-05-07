@@ -5,20 +5,19 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"opensplit/apps/backend/internal/core/application"
 	"opensplit/apps/backend/internal/core/domain"
 )
 
-// APIHandler wires the three application services to their HTTP routes.
 type APIHandler struct {
 	expenseService *application.ExpenseService
 	userService    *application.UserService
 	groupService   *application.GroupService
 }
 
-// NewAPIHandler constructs an APIHandler with the given services.
 func NewAPIHandler(es *application.ExpenseService, us *application.UserService, gs *application.GroupService) *APIHandler {
 	return &APIHandler{
 		expenseService: es,
@@ -58,7 +57,8 @@ func getAuthUserID(r *http.Request) (string, error) {
 	return id, nil
 }
 
-// parsePage reads optional ?limit=N&cursor=RFC3339 query params.
+// parsePage reads optional ?limit=N&cursor=<timestamp>|<id> query params.
+// The cursor is a composite of RFC3339Nano timestamp and expense ID (tie-breaker).
 // Defaults: limit=20, no cursor (first page).
 func parsePage(r *http.Request) domain.Page {
 	limit := 20
@@ -68,10 +68,19 @@ func parsePage(r *http.Request) domain.Page {
 		}
 	}
 	var cursor time.Time
+	var cursorID string
 	if s := r.URL.Query().Get("cursor"); s != "" {
-		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			cursor = t
+		if idx := strings.Index(s, "|"); idx != -1 {
+			if t, err := time.Parse(time.RFC3339Nano, s[:idx]); err == nil {
+				cursor = t
+				cursorID = s[idx+1:]
+			}
+		} else {
+			// Fallback: bare timestamp (no tie-breaker; safe — just less precise)
+			if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+				cursor = t
+			}
 		}
 	}
-	return domain.Page{Limit: limit, Cursor: cursor}
+	return domain.Page{Limit: limit, Cursor: cursor, CursorID: cursorID}
 }
