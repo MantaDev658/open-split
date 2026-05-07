@@ -52,3 +52,60 @@ jobs:
 
       - name: Type-check and build
         run: make frontend-build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: opensplit
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend/go.mod
+          cache-dependency-path: |
+            apps/backend/go.sum
+            libs/shared/go.sum
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install migrate tool
+        run: make setup-migrate
+
+      - name: Run migrations
+        run: make migrate-up
+
+      - name: Start backend
+        run: go run ./apps/backend/cmd/api/main.go &
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable
+          JWT_SECRET: ci-e2e-secret
+
+      - name: Wait for backend
+        run: |
+          printf "Waiting for API"
+          until nc -z 127.0.0.1 8080 2>/dev/null; do printf "."; sleep 0.5; done
+          echo " ready"
+
+      - name: Install frontend deps and Playwright browser
+        run: make frontend-install && make playwright-install
+
+      - name: Run E2E tests
+        run: make frontend-e2e

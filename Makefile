@@ -94,6 +94,12 @@ frontend-clean:
 
 ftest: frontend-clean frontend-install frontend-build frontend-test
 
+playwright-install:
+	cd apps/frontend && bunx playwright install --with-deps chromium
+
+frontend-e2e:
+	cd apps/frontend && bunx playwright test
+
 # --- Database & Infrastructure ---
 
 db-up:

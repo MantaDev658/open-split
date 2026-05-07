@@ -26,11 +26,9 @@
 		text="★ WELCOME TO OPEN SPLIT ★ YOUR BALANCES AWAIT ★ SPLIT SMART, SETTLE FAST ★ EST. 2025 ★"
 	/>
 	<Nav />
-	<main class="bg-90s-tile min-h-screen p-4">
-		{@render children()}
-	</main>
-{:else}
-	{@render children()}
 {/if}
+<main class={authenticated ? 'bg-90s-tile min-h-screen p-4' : ''}>
+	{@render children()}
+</main>
 
 <Toast />

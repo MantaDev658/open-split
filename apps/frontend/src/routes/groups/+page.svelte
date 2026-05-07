@@ -27,7 +27,7 @@
 			const g = await listGroups();
 			groups = g;
 			const entries = await Promise.all(
-				g.map(async (grp) => {
+				(g ?? []).map(async (grp) => {
 					try {
 						const bal = await getBalances(grp.ID);
 						const count = bal.suggested_settlements?.length ?? 0;
@@ -91,7 +91,7 @@
 
 	{#if loading}
 		<p class="font-system text-sm text-win-dark animate-pulse">Loading…</p>
-	{:else if !groups.length}
+	{:else if !groups?.length}
 		<p class="font-system text-sm text-win-dark">No groups yet. Create one above.</p>
 	{:else}
 		<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -107,7 +107,7 @@
 						</div>
 						<div class="bg-white p-3" style="box-shadow: var(--bevel-in)">
 							<p class="font-system text-sm text-win-dark">
-								{group.Members.length} member{group.Members.length === 1 ? '' : 's'}
+								{(group.Members ?? []).length} member{(group.Members ?? []).length === 1 ? '' : 's'}
 							</p>
 							{#if status === undefined}
 								<p class="font-system text-xs text-win-dark mt-1 animate-pulse">Checking…</p>

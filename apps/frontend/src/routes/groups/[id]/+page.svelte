@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { APIError } from '$lib/api/client';
@@ -53,25 +54,35 @@
 	let expenseCursorStack = $state<string[]>([]);
 
 	// ── Derived ──────────────────────────────────────────────────────
-	const userByID = $derived(Object.fromEntries(allUsers.map((u) => [u.ID, u])));
+	const userByID = $derived(Object.fromEntries((allUsers ?? []).map((u) => [u.ID, u])));
 
 	const nonMembers = $derived(
-		allUsers.filter((u) => !group?.Members.includes(u.ID))
+		(allUsers ?? []).filter((u) => !group?.Members.includes(u.ID))
 			.map((u) => ({ value: u.ID, label: u.DisplayName }))
 	);
 
 	// ── Load ─────────────────────────────────────────────────────────
-	$effect(() => {
-		const id = groupID;
-		loading = true;
-		Promise.all([listGroups(), listUsers()])
-			.then(([groups, users]) => {
-				group = groups.find((g) => g.ID === id) ?? null;
-				allUsers = users;
-			})
-			.catch(() => toastStore.error('Failed to load group.'))
-			.finally(() => (loading = false));
+	let mounted = true;
+	onDestroy(() => { mounted = false; });
+
+	onMount(() => {
+		loadGroup();
 	});
+
+	async function loadGroup() {
+		loading = true;
+		try {
+			const id = groupID;
+			const [groups, users] = await Promise.all([listGroups(), listUsers()]);
+			if (!mounted) return;
+			group = groups.find((g) => g.ID === id) ?? null;
+			allUsers = users;
+		} catch {
+			if (mounted) toastStore.error('Failed to load group.');
+		} finally {
+			if (mounted) loading = false;
+		}
+	}
 
 	$effect(() => {
 		if (tab === 'expenses' && groupID) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { APIError } from '$lib/api/client';
 	import { createExpense, deleteExpense, listExpenses, updateExpense } from '$lib/api/expenses';
 	import { listGroups } from '$lib/api/groups';
@@ -47,15 +48,15 @@
 	let editSaving = $state(false);
 
 	// ── Derived ─────────────────────────────────────────────────────
-	const userByID = $derived(Object.fromEntries(users.map((u) => [u.ID, u])));
+	const userByID = $derived(Object.fromEntries((users ?? []).map((u) => [u.ID, u])));
 
 	const groupOptions = $derived([
 		{ value: '', label: 'All Expenses' },
-		...groups.map((g) => ({ value: g.ID, label: g.Name }))
+		...(groups ?? []).map((g) => ({ value: g.ID, label: g.Name }))
 	]);
 
 	const userOptions = $derived(
-		users
+		(users ?? [])
 			.filter((u) => !participants.some((p) => p.userID === u.ID))
 			.map((u) => ({ value: u.ID, label: u.DisplayName }))
 	);
@@ -81,7 +82,7 @@
 	);
 
 	const editUserOptions = $derived(
-		users
+		(users ?? [])
 			.filter((u) => !editParticipants.some((p) => p.userID === u.ID))
 			.map((u) => ({ value: u.ID, label: u.DisplayName }))
 	);
@@ -100,7 +101,7 @@
 	});
 
 	// ── Data loading ─────────────────────────────────────────────────
-	$effect(() => {
+	onMount(() => {
 		loadAll();
 	});
 
@@ -365,7 +366,7 @@
 							id="exp-group"
 							bind:value={formGroupId}
 							placeholder="No group"
-							options={groups.map((g) => ({ value: g.ID, label: g.Name }))}
+							options={(groups ?? []).map((g) => ({ value: g.ID, label: g.Name }))}
 						/>
 					</div>
 				</div>
@@ -440,7 +441,7 @@
 	<!-- Table -->
 	{#if loading}
 		<p class="font-system text-sm text-win-dark animate-pulse">Loading…</p>
-	{:else if !expenses.length}
+	{:else if !expenses?.length}
 		<p class="font-system text-sm text-win-dark">No expenses found.</p>
 	{:else}
 		<div class="overflow-x-auto">

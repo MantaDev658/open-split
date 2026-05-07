@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getBalances, listExpenses } from '$lib/api/expenses';
 	import { listGroups } from '$lib/api/groups';
 	import { listUsers } from '$lib/api/users';
@@ -17,11 +17,16 @@
 	let loading = $state(true);
 	let unavailable = $state(false);
 
+	// Guard against setting state on a destroyed component (async loadDashboard
+	// can outlive the component when the user navigates away mid-load).
+	let mounted = true;
+	onDestroy(() => { mounted = false; });
+
 	const userID = $derived($authStore.userID ?? '');
 	const userBalance = $derived(globalBalances?.net_balances?.[userID] ?? 0);
 	const owedToMe = $derived(Math.max(0, userBalance));
 	const iOwe = $derived(Math.max(0, -userBalance));
-	const userByID = $derived(Object.fromEntries(users.map((u) => [u.ID, u])));
+	const userByID = $derived(Object.fromEntries((users ?? []).map((u) => [u.ID, u])));
 
 	onMount(() => {
 		loadDashboard();
@@ -39,6 +44,8 @@
 				listExpenses(undefined, undefined, 5)
 			]);
 
+			if (!mounted) return;
+
 			// If every call failed the backend is likely not running yet
 			if ([balResult, grpResult, usrResult, expResult].every((r) => r.status === 'rejected')) {
 				unavailable = true;
@@ -52,10 +59,13 @@
 
 			// Per-group balance status — allSettled so a slow/failed group call never blocks loading
 			const statusResults = await Promise.allSettled(
-				groups.map((g) => getBalances(g.ID))
+				(groups ?? []).map((g) => getBalances(g.ID))
 			);
+
+			if (!mounted) return;
+
 			groupStatuses = Object.fromEntries(
-				groups.map((g, i) => {
+				(groups ?? []).map((g, i) => {
 					const r = statusResults[i];
 					if (r?.status === 'fulfilled') {
 						const count = r.value.suggested_settlements?.length ?? 0;
@@ -65,7 +75,7 @@
 				})
 			);
 		} finally {
-			loading = false;
+			if (mounted) loading = false;
 		}
 	}
 </script>
@@ -88,7 +98,7 @@
 		</button>
 	</div>
 {:else}
-	{#if groups.length === 0 && expenses.length === 0}
+	{#if !groups?.length && !expenses?.length}
 		<!-- Getting started — no data yet -->
 		<Window title="WELCOME TO OPEN SPLIT">
 			<div class="font-system text-sm flex flex-col gap-3">
@@ -120,14 +130,14 @@
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
 		<!-- Groups with settled status -->
 		<Window title="MY GROUPS">
-			{#if !groups.length}
+			{#if !groups?.length}
 				<p class="font-system text-sm text-win-dark">
 					No groups yet.
 					<a href="/groups" class="text-win-accent underline">Create one →</a>
 				</p>
 			{:else}
 				<div class="flex flex-col gap-1 font-system text-sm">
-					{#each groups as g, i}
+					{#each (groups ?? []) as g, i}
 						{@const status = groupStatuses[g.ID]}
 						<a href="/groups/{g.ID}" class="block no-underline">
 							<div class="flex items-center justify-between px-2 py-1.5
@@ -187,7 +197,7 @@
 
 	<!-- Recent expenses -->
 	<Window title="RECENT EXPENSES">
-		{#if !expenses.length}
+		{#if !expenses?.length}
 			<p class="font-system text-sm text-win-dark">
 				No expenses yet.
 				<a href="/expenses" class="text-win-accent underline">Add one →</a>
@@ -203,7 +213,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each expenses as exp, i}
+					{#each (expenses ?? []) as exp, i}
 						<tr class={i % 2 === 0 ? 'bg-win-panel' : 'bg-white'}>
 							<td class="px-2 py-0.5">{exp.description}</td>
 							<td class="px-2 py-0.5 text-win-dark">{exp.payer}</td>

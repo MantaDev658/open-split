@@ -38,6 +38,12 @@ testdata/fuzz/
 .DS_Store
 Thumbs.db
 
+# --- Playwright ---
+apps/frontend/test-results/
+apps/frontend/playwright-report/
+apps/frontend/blob-report/
+apps/frontend/.playwright-artifacts/
+
 # --- Infrastructure ---
 # Pulumi state or local secrets
 .pulumi/

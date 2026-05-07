@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { APIError } from '$lib/api/client';
 	import { listGroups } from '$lib/api/groups';
 	import { createSettlement } from '$lib/api/settlements';
@@ -31,7 +32,7 @@
 		groups.map((g) => ({ value: g.ID, label: g.Name }))
 	);
 
-	$effect(() => {
+	onMount(() => {
 		Promise.all([listUsers(), listGroups()])
 			.then(([usrs, grps]) => {
 				users = usrs;
@@ -74,54 +75,53 @@
 
 <div class="max-w-sm">
 	<Window title="SETTLE UP">
-		{#if loading}
-			<p class="font-system text-sm text-win-dark animate-pulse">Loading…</p>
-		{:else}
-			<form class="flex flex-col gap-3 font-system" onsubmit={handleSubmit}>
-				<div class="flex flex-col gap-1">
-					<label class="text-xs font-bold" for="settle-receiver">Send payment to</label>
-					<Select
-						id="settle-receiver"
-						bind:value={receiverID}
-						placeholder="Select recipient…"
-						options={receiverOptions}
-					/>
-				</div>
+		<form class="flex flex-col gap-3 font-system" onsubmit={handleSubmit}>
+			<div class="flex flex-col gap-1">
+				<label class="text-xs font-bold" for="settle-receiver">Send payment to</label>
+				<Select
+					id="settle-receiver"
+					bind:value={receiverID}
+					placeholder={loading ? 'Loading…' : 'Select recipient…'}
+					options={receiverOptions}
+					disabled={loading}
+				/>
+			</div>
 
-				<div class="flex flex-col gap-1">
-					<label class="text-xs font-bold" for="settle-amount">Amount ($)</label>
-					<Input
-						id="settle-amount"
-						type="number"
-						min="0.01"
-						step="0.01"
-						bind:value={amountDollars}
-						placeholder="0.00"
-					/>
-				</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-xs font-bold" for="settle-amount">Amount ($)</label>
+				<Input
+					id="settle-amount"
+					type="number"
+					min="0.01"
+					step="0.01"
+					bind:value={amountDollars}
+					placeholder="0.00"
+					disabled={loading}
+				/>
+			</div>
 
-				<div class="flex flex-col gap-1">
-					<label class="text-xs font-bold" for="settle-group">Group (optional)</label>
-					<Select
-						id="settle-group"
-						bind:value={groupID}
-						placeholder="No group"
-						options={groupOptions}
-					/>
-				</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-xs font-bold" for="settle-group">Group (optional)</label>
+				<Select
+					id="settle-group"
+					bind:value={groupID}
+					placeholder="No group"
+					options={groupOptions}
+					disabled={loading}
+				/>
+			</div>
 
-				<HRule />
+			<HRule />
 
-				<Button type="submit" variant="success" disabled={submitting} class="w-full py-2 text-base">
-					{submitting ? 'RECORDING…' : 'SETTLE UP'}
-				</Button>
-			</form>
+			<Button type="submit" variant="success" disabled={submitting || loading} class="w-full py-2 text-base">
+				{submitting ? 'RECORDING…' : 'SETTLE UP'}
+			</Button>
+		</form>
 
-			<!-- Warning stripe -->
-			<div class="bg-construction h-5 mt-4" aria-hidden="true"></div>
-			<p class="font-system text-xs font-bold text-center py-1 bg-win-yellow">
-				⚠ THIS ACTION CANNOT BE UNDONE ⚠
-			</p>
-		{/if}
+		<!-- Warning stripe -->
+		<div class="bg-construction h-5 mt-4" aria-hidden="true"></div>
+		<p class="font-system text-xs font-bold text-center py-1 bg-win-yellow">
+			⚠ THIS ACTION CANNOT BE UNDONE ⚠
+		</p>
 	</Window>
 </div>

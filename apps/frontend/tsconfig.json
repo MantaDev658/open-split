@@ -20,5 +20,5 @@
 		"noUnusedParameters": true,
 		"noPropertyAccessFromIndexSignature": true,
 	},
-	"exclude": ["**/*.test.ts", "**/*.spec.ts", "node_modules"]
+	"exclude": ["**/*.test.ts", "**/*.spec.ts", "e2e", "playwright.config.ts", "node_modules"]
 }

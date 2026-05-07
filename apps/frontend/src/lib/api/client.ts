@@ -28,8 +28,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
 	if (res.status === 401) {
 		authStore.logout();
-		// Window guard: allows unit tests to run without a DOM
-		if (typeof window !== 'undefined') {
+		// Only hard-redirect when the request carried a token — if there was no token,
+		// the 401 means "wrong credentials" (login/register), not "session expired".
+		if (token && typeof window !== 'undefined') {
 			window.location.replace('/login');
 		}
 		throw new APIError(401, 'Session expired');
