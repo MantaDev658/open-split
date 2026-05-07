@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Full pre-commit gate: build → unit → integration → E2E.
+# Install once with: make install-hooks
+# Bypass in emergencies: git commit --no-verify
+
+set -euo pipefail
+
+# ── Formatting helpers ────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YLW='\033[1;33m'
+BLU='\033[0;34m'
+NC='\033[0m'
+
+step() { echo -e "\n${BLU}▶ $1${NC}"; }
+pass() { echo -e "${GRN}  ✓ $1${NC}"; }
+die()  { echo -e "${RED}  ✗ $1${NC}" >&2; exit 1; }
+
+# ── Cleanup: only stop services this hook started ─────────────────────
+
+STARTED_DB=false
+STARTED_API=false
+API_PID=""
+
+cleanup() {
+    local code=$?
+    [ -n "$API_PID" ] && kill "$API_PID" 2>/dev/null || true
+    $STARTED_API && wait "$API_PID" 2>/dev/null || true
+    $STARTED_DB  && make db-down --no-print-directory 2>/dev/null || true
+    exit $code
+}
+trap cleanup EXIT INT TERM
+
+# ── Repo root ─────────────────────────────────────────────────────────
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo -e "${YLW}"
+echo "╔══════════════════════════════════╗"
+echo "║  Open Split — pre-commit checks  ║"
+echo "╚══════════════════════════════════╝"
+echo -e "${NC}"
+
+# ═════════════════════════════════════════════════════════════════════
+# Backend
+# ═════════════════════════════════════════════════════════════════════
+
+step "Backend: build & lint"
+make check --no-print-directory || die "Backend build/lint failed"
+pass "Build & lint"
+
+step "Backend: unit tests + race detector"
+make test-unit test-race --no-print-directory || die "Backend unit/race tests failed"
+pass "Unit tests & race detector"
+
+# ═════════════════════════════════════════════════════════════════════
+# Frontend
+# ═════════════════════════════════════════════════════════════════════
+
+step "Frontend: unit tests"
+make frontend-test --no-print-directory || die "Frontend unit tests failed"
+pass "Unit tests"
+
+step "Frontend: type-check & build"
+make frontend-build --no-print-directory || die "Frontend build failed"
+pass "Type-check & build"
+
+# ═════════════════════════════════════════════════════════════════════
+# Infrastructure: PostgreSQL
+# ═════════════════════════════════════════════════════════════════════
+
+step "PostgreSQL"
+if nc -z 127.0.0.1 5432 2>/dev/null; then
+    echo "  Using existing PostgreSQL instance"
+else
+    echo "  Starting PostgreSQL via docker-compose..."
+    make db-up --no-print-directory || die "Failed to start PostgreSQL"
+    STARTED_DB=true
+fi
+make migrate-up --no-print-directory 2>&1 | grep -E '(up|down|no change|error)' || true
+pass "PostgreSQL ready"
+
+# ═════════════════════════════════════════════════════════════════════
+# Backend: integration tests
+# ═════════════════════════════════════════════════════════════════════
+
+step "Backend: integration tests"
+make test-integration --no-print-directory || die "Backend integration tests failed"
+pass "Integration tests"
+
+# ═════════════════════════════════════════════════════════════════════
+# Infrastructure: backend API (for E2E)
+# ═════════════════════════════════════════════════════════════════════
+
+step "Backend API"
+if nc -z 127.0.0.1 8080 2>/dev/null; then
+    echo "  Using existing backend instance"
+else
+    echo "  Starting backend API..."
+    DATABASE_URL="postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable" \
+    JWT_SECRET="pre-commit-hook-secret" \
+    go run ./apps/backend/cmd/api/main.go &>/dev/null &
+    API_PID=$!
+    STARTED_API=true
+    printf "  waiting"
+    until nc -z 127.0.0.1 8080 2>/dev/null; do
+        if ! kill -0 "$API_PID" 2>/dev/null; then
+            die "Backend API failed to start"
+        fi
+        printf "."
+        sleep 0.3
+    done
+    echo
+fi
+pass "Backend API ready"
+
+# ═════════════════════════════════════════════════════════════════════
+# E2E tests
+# ═════════════════════════════════════════════════════════════════════
+
+step "E2E tests (Playwright)"
+make frontend-e2e --no-print-directory || die "E2E tests failed"
+pass "E2E tests"
+
+# ═════════════════════════════════════════════════════════════════════
+
+echo -e "\n${GRN}✅ All checks passed — commit allowed${NC}\n"

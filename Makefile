@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build frontend-test dev
+.PHONY: setup-lint lint test test-race fuzz run-cli frontend-install frontend-dev frontend-build frontend-test dev install-hooks
 
 # --- Variables ---
 GOBIN = $(shell go env GOPATH)/bin
@@ -87,7 +87,7 @@ frontend-build:
 	cd apps/frontend && bun run build
 
 frontend-test:
-	cd apps/frontend && bun test
+	cd apps/frontend && bun test src/
 
 frontend-clean:
 	cd apps/frontend && bun clean
@@ -120,3 +120,7 @@ migrate-up:
 
 migrate-down:
 	@$(GOBIN)/migrate -path $(MIGRATE_PATH) -database $(DB_URL) -verbose down
+
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "✅ Git hooks installed (.githooks/pre-commit active)"
