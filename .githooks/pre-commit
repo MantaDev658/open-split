@@ -5,124 +5,149 @@
 
 set -euo pipefail
 
-# ── Formatting helpers ────────────────────────────────────────────────
+# ── Colours ───────────────────────────────────────────────────────────
+RED=$'\033[0;31m'; GRN=$'\033[0;32m'; YLW=$'\033[1;33m'
+DIM=$'\033[2m'; NC=$'\033[0m'
 
-RED='\033[0;31m'
-GRN='\033[0;32m'
-YLW='\033[1;33m'
-BLU='\033[0;34m'
-NC='\033[0m'
-
-step() { echo -e "\n${BLU}▶ $1${NC}"; }
-pass() { echo -e "${GRN}  ✓ $1${NC}"; }
-die()  { echo -e "${RED}  ✗ $1${NC}" >&2; exit 1; }
-
-# ── Cleanup: only stop services this hook started ─────────────────────
-
-STARTED_DB=false
-STARTED_API=false
-API_PID=""
+# ── State ─────────────────────────────────────────────────────────────
+STEP=0; TOTAL=8
+STARTED_DB=false; API_PID=""
+HOOK_START=$SECONDS
+LOG=$(mktemp); API_LOG=$(mktemp)
 
 cleanup() {
     local code=$?
-    [ -n "$API_PID" ] && kill "$API_PID" 2>/dev/null || true
-    $STARTED_API && wait "$API_PID" 2>/dev/null || true
-    $STARTED_DB  && make db-down --no-print-directory 2>/dev/null || true
+    rm -f "$LOG" "$API_LOG"
+    [ -n "$API_PID" ] && { kill "$API_PID" 2>/dev/null; wait "$API_PID" 2>/dev/null; } || true
+    $STARTED_DB && make db-down --no-print-directory 2>/dev/null || true
     exit $code
 }
 trap cleanup EXIT INT TERM
 
-# ── Repo root ─────────────────────────────────────────────────────────
-
 cd "$(git rev-parse --show-toplevel)"
 
-echo -e "${YLW}"
-echo "╔══════════════════════════════════╗"
-echo "║  Open Split — pre-commit checks  ║"
-echo "╚══════════════════════════════════╝"
-echo -e "${NC}"
+# ── Header ────────────────────────────────────────────────────────────
+printf "\n${YLW}  Open Split — pre-commit${NC}\n"
+printf "${DIM}  ─────────────────────────────────────────${NC}\n\n"
 
-# ═════════════════════════════════════════════════════════════════════
-# Backend
-# ═════════════════════════════════════════════════════════════════════
+# ── Helpers ───────────────────────────────────────────────────────────
+SPIN=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
-step "Backend: build & lint"
-make check --no-print-directory || die "Backend build/lint failed"
-pass "Build & lint"
+show_fail() {
+    echo
+    printf "${DIM}  ── output ─────────────────────────────────${NC}\n"
+    sed 's/^/    /' "${1:-$LOG}" | tail -30
+    printf "${DIM}  ───────────────────────────────────────────${NC}\n\n"
+    exit 1
+}
 
-step "Backend: unit tests + race detector"
-make test-unit test-race --no-print-directory || die "Backend unit/race tests failed"
-pass "Unit tests & race detector"
+# Runs a command in the background, shows a spinner, prints ✓/✗ + elapsed.
+run_step() {
+    local label="$1"; shift
+    (( STEP++ )) || true
+    local start=$SECONDS si=0
 
-# ═════════════════════════════════════════════════════════════════════
-# Frontend
-# ═════════════════════════════════════════════════════════════════════
+    "$@" >"$LOG" 2>&1 &
+    local pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r  ${DIM}%d/%d${NC}  %-34s${YLW}%s${NC}" \
+               "$STEP" "$TOTAL" "$label" "${SPIN[$((si % 10))]}"
+        sleep 0.1
+        (( si++ )) || true
+    done
+    local rc=0; wait "$pid" || rc=$?
 
-step "Frontend: unit tests"
-make frontend-test --no-print-directory || die "Frontend unit tests failed"
-pass "Unit tests"
+    if [ "$rc" -eq 0 ]; then
+        printf "\r  ${DIM}%d/%d${NC}  %-34s${GRN}✓${NC}  ${DIM}%ds${NC}\n" \
+               "$STEP" "$TOTAL" "$label" "$(( SECONDS - start ))"
+    else
+        printf "\r  ${DIM}%d/%d${NC}  %-34s${RED}✗${NC}\n" "$STEP" "$TOTAL" "$label"
+        show_fail
+    fi
+}
 
-step "Frontend: type-check & build"
-make frontend-build --no-print-directory || die "Frontend build failed"
-pass "Type-check & build"
+# ═══════════════════════════════════════════════════════════════════════
+# Code quality
+# ═══════════════════════════════════════════════════════════════════════
 
-# ═════════════════════════════════════════════════════════════════════
+run_step "Backend: build & lint"  make check --no-print-directory
+run_step "Backend: unit tests"    make test-unit --no-print-directory
+run_step "Backend: race detector" make test-race --no-print-directory
+run_step "Frontend: install"      make frontend-install --no-print-directory
+run_step "Frontend: unit tests"   make frontend-test --no-print-directory
+run_step "Frontend: build"        make frontend-build --no-print-directory
+
+# ═══════════════════════════════════════════════════════════════════════
 # Infrastructure: PostgreSQL
-# ═════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 
-step "PostgreSQL"
+printf "\n"
+printf "       %-34s" "PostgreSQL"
 if nc -z 127.0.0.1 5432 2>/dev/null; then
-    echo "  Using existing PostgreSQL instance"
+    make migrate-up --no-print-directory >"$LOG" 2>&1 \
+        || { printf "${RED}✗${NC}\n"; show_fail; }
+    printf "${GRN}✓${NC}  ${DIM}existing${NC}\n"
 else
-    echo "  Starting PostgreSQL via docker-compose..."
-    make db-up --no-print-directory || die "Failed to start PostgreSQL"
+    make db-up --no-print-directory >"$LOG" 2>&1 \
+        || { printf "${RED}✗${NC}\n"; show_fail; }
     STARTED_DB=true
+    make migrate-up --no-print-directory >"$LOG" 2>&1 \
+        || { printf "${RED}✗${NC}\n"; show_fail; }
+    printf "${GRN}✓${NC}  ${DIM}started${NC}\n"
 fi
-make migrate-up --no-print-directory 2>&1 | grep -E '(up|down|no change|error)' || true
-pass "PostgreSQL ready"
 
-# ═════════════════════════════════════════════════════════════════════
-# Backend: integration tests
-# ═════════════════════════════════════════════════════════════════════
+# Integration tests (DB only, no API needed)
+run_step "Integration tests"  make test-integration --no-print-directory
 
-step "Backend: integration tests"
-make test-integration --no-print-directory || die "Backend integration tests failed"
-pass "Integration tests"
+# ═══════════════════════════════════════════════════════════════════════
+# Infrastructure: Backend API (needed for E2E)
+# Step 1 (make check) already compiled bin/opensplit-api — use that
+# directly so startup is instant and the process is trivial to kill.
+# ═══════════════════════════════════════════════════════════════════════
 
-# ═════════════════════════════════════════════════════════════════════
-# Infrastructure: backend API (for E2E)
-# ═════════════════════════════════════════════════════════════════════
+printf "       %-34s" "Backend API"
 
-step "Backend API"
-if nc -z 127.0.0.1 8080 2>/dev/null; then
-    echo "  Using existing backend instance"
+# HTTP health check (not just TCP) to confirm an existing process is alive.
+api_alive() {
+    nc -z 127.0.0.1 8080 2>/dev/null && \
+    curl -s --connect-timeout 1 --max-time 2 \
+         http://localhost:8080/users -o /dev/null 2>/dev/null
+}
+
+if api_alive; then
+    printf "${GRN}✓${NC}  ${DIM}existing${NC}\n"
 else
-    echo "  Starting backend API..."
+    start=$SECONDS si=0
     DATABASE_URL="postgresql://postgres:password@localhost:5432/opensplit?sslmode=disable" \
     JWT_SECRET="pre-commit-hook-secret" \
-    go run ./apps/backend/cmd/api/main.go &>/dev/null &
+    ./bin/opensplit-api >"$API_LOG" 2>&1 &
     API_PID=$!
-    STARTED_API=true
-    printf "  waiting"
     until nc -z 127.0.0.1 8080 2>/dev/null; do
+        printf "\r       %-34s${YLW}%s${NC}" "Backend API" "${SPIN[$((si % 10))]}"
         if ! kill -0 "$API_PID" 2>/dev/null; then
-            die "Backend API failed to start"
+            printf "\r       %-34s${RED}✗${NC}\n" "Backend API"
+            show_fail "$API_LOG"
         fi
-        printf "."
-        sleep 0.3
+        sleep 0.1; (( si++ )) || true
     done
-    echo
+    printf "\r       %-34s${GRN}✓${NC}  ${DIM}%ds${NC}\n" \
+           "Backend API" "$(( SECONDS - start ))"
 fi
-pass "Backend API ready"
 
-# ═════════════════════════════════════════════════════════════════════
+# Playwright browser (idempotent — skips download if already installed)
+printf "       %-34s" "Playwright browser"
+make playwright-install --no-print-directory >"$LOG" 2>&1 \
+    || { printf "${RED}✗${NC}\n"; show_fail; }
+printf "${GRN}✓${NC}  ${DIM}ready${NC}\n"
+printf "\n"
+
+# ═══════════════════════════════════════════════════════════════════════
 # E2E tests
-# ═════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 
-step "E2E tests (Playwright)"
-make frontend-e2e --no-print-directory || die "E2E tests failed"
-pass "E2E tests"
+run_step "E2E tests (Playwright)"  make frontend-e2e --no-print-directory
 
-# ═════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 
-echo -e "\n${GRN}✅ All checks passed — commit allowed${NC}\n"
+printf "\n  ${GRN}✅  All checks passed${NC}  ${DIM}(%ds)${NC}\n\n" \
+       "$(( SECONDS - HOOK_START ))"
