@@ -54,6 +54,15 @@ func TestUserService_Auth(t *testing.T) {
 		}
 	})
 
+	t.Run("RegisterUser rejects password over 72 bytes", func(t *testing.T) {
+		repo := &mocks.MockUserRepo{}
+		service := NewUserService(repo, secret)
+		err := service.RegisterUser(context.Background(), "Alice", "Alice S.", strings.Repeat("a", 73))
+		if !errors.Is(err, domain.ErrPasswordTooLong) {
+			t.Errorf("expected ErrPasswordTooLong, got %v", err)
+		}
+	})
+
 	t.Run("LoginUser returns valid JWT", func(t *testing.T) {
 		hash, _ := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.DefaultCost)
 		repo := &mocks.MockUserRepo{
@@ -155,6 +164,13 @@ func TestUserService_ChangePassword(t *testing.T) {
 		err := service.ChangePassword(context.Background(), "Alice", currentPlain, "short")
 		if !errors.Is(err, domain.ErrPasswordTooShort) {
 			t.Errorf("expected ErrPasswordTooShort, got %v", err)
+		}
+	})
+
+	t.Run("rejects new password over 72 bytes", func(t *testing.T) {
+		err := service.ChangePassword(context.Background(), "Alice", currentPlain, strings.Repeat("a", 73))
+		if !errors.Is(err, domain.ErrPasswordTooLong) {
+			t.Errorf("expected ErrPasswordTooLong, got %v", err)
 		}
 	})
 

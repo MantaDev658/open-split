@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -25,6 +26,9 @@ func AuthMiddleware(secret []byte) func(http.Handler) http.Handler {
 
 			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
 				return secret, nil
 			})
 

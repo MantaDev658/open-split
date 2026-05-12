@@ -140,7 +140,7 @@ func (h *APIHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, domain.ErrInvalidCredentials):
 			// 400 not 401: caller is authenticated, this is a validation failure not session expiry
 			http.Error(w, "current password is incorrect", http.StatusBadRequest)
-		case errors.Is(err, domain.ErrPasswordTooShort), errors.Is(err, domain.ErrSamePassword):
+		case errors.Is(err, domain.ErrPasswordTooShort), errors.Is(err, domain.ErrPasswordTooLong), errors.Is(err, domain.ErrSamePassword):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)

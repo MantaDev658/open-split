@@ -39,6 +39,9 @@ func (s *UserService) CreateUser(ctx context.Context, cmd CreateUserCommand) err
 }
 
 func (s *UserService) RegisterUser(ctx context.Context, id, displayName, plainPassword string) error {
+	if len([]byte(plainPassword)) > 72 {
+		return domain.ErrPasswordTooLong
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
@@ -83,6 +86,9 @@ func (s *UserService) UpdateUser(ctx context.Context, id string, displayName str
 func (s *UserService) ChangePassword(ctx context.Context, id, currentPlain, newPlain string) error {
 	if len(newPlain) < 8 {
 		return domain.ErrPasswordTooShort
+	}
+	if len([]byte(newPlain)) > 72 {
+		return domain.ErrPasswordTooLong
 	}
 
 	user, err := s.repo.GetByID(ctx, domain.UserID(id))

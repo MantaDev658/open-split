@@ -38,5 +38,6 @@ var (
 	ErrEmptyDisplayName   = errors.New("display name cannot be empty")
 	ErrUnauthorized       = errors.New("unauthorized: missing or invalid identity")
 	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong    = errors.New("password must not exceed 72 bytes")
 	ErrSamePassword       = errors.New("new password must differ from the current password")
 )

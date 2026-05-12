@@ -48,6 +48,23 @@ func TestAuthMiddleware(t *testing.T) {
 		}
 	})
 
+	t.Run("Rejects token signed with unexpected algorithm (alg:none)", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodNone, jwt.MapClaims{
+			"sub": "Alice",
+			"exp": time.Now().Add(time.Hour).Unix(),
+		})
+		tokenString, _ := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+		rr := httptest.NewRecorder()
+		handlerToTest.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", rr.Code)
+		}
+	})
+
 	t.Run("Succeeds and injects context with valid token", func(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub": "Alice",

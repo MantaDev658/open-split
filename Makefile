@@ -27,7 +27,7 @@ lint:
 		cd - > /dev/null; \
 	done
 
-check: build lint
+check: setup-lint build lint
 
 # --- Testing ---
 
@@ -54,7 +54,7 @@ test-integration:
 	@echo "Running PostgreSQL Integration Tests..."
 	TEST_DB_URL=$(DB_URL) go test -v ./apps/backend/internal/core/infrastructure/postgres/...
 
-test: test-unit test-race test-fuzz db-up migrate-up test-integration db-down
+test: test-unit test-race test-fuzz db-up setup-migrate migrate-up test-integration db-down
 
 # --- Run Application ---
 
